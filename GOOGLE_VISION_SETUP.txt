@@ -1,0 +1,25 @@
+GOOGLE CLOUD VISION — CONFIGURAÇÃO DO OCR
+
+1) Entre em https://console.cloud.google.com/
+2) Crie ou selecione um projeto.
+3) Vá em APIs & Services > Library.
+4) Procure por "Cloud Vision API" e clique em Enable.
+5) Vá em APIs & Services > Credentials.
+6) Clique em Create credentials > API key.
+7) Abra a chave criada e, em API restrictions, selecione "Restrict key".
+8) Marque somente "Cloud Vision API" e salve.
+9) Na Vercel: Project > Settings > Environment Variables.
+10) Crie exatamente:
+
+GOOGLE_CLOUD_VISION_API_KEY
+
+11) Cole a chave como valor.
+12) Marque Production (e Preview/Development se quiser).
+13) Salve.
+14) Vá em Deployments e faça Redeploy.
+
+IMPORTANTE
+- Não use NEXT_PUBLIC_ no nome desta chave.
+- Não coloque a chave no GitHub.
+- O sistema envia a imagem ao Google Cloud Vision somente durante a leitura OCR.
+- O texto OCR não é salvo pelo código do sistema; os documentos originais continuam no bucket privado do Supabase.

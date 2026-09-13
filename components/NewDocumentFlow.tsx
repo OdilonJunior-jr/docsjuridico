@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Check, ChevronLeft, FileCheck2, FileText, LoaderCircle, LockKeyhole, SearchCheck, Upload, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { extractTextFromFile, parseBrazilianDocumentText } from '@/lib/ocr'
+import { extractDataFromFile } from '@/lib/ocr'
 import type { CompanyData, DocumentKind, PersonData } from '@/lib/types'
 
 const emptyPerson: PersonData = {
@@ -79,21 +79,14 @@ export function NewDocumentFlow() {
     if (e1 || e2) { setError(e1 || e2); return }
     setError(''); setProcessing(true); setProgress(0); setDownload(null)
     try {
-      const identityText = await extractTextFromFile(identityFile, (p) => setProgress(Math.max(5, Math.round(p * 45))))
+      const identity = await extractDataFromFile(identityFile, 'identity', (p) => setProgress(Math.max(5, Math.round(p * 45))))
       setProgress(50)
-      const residenceText = await extractTextFromFile(residenceFile, (p) => setProgress(Math.max(50, 50 + Math.round(p * 45))))
-      const identity = parseBrazilianDocumentText(identityText)
-      const residence = parseBrazilianDocumentText(residenceText)
+      const residence = await extractDataFromFile(residenceFile, 'residence', (p) => setProgress(Math.max(50, 50 + Math.round(p * 45))))
       const merged = mergePerson(identity, residence)
 
-      const identityChars = identityText.replace(/\s/g, '').length
-      const residenceChars = residenceText.replace(/\s/g, '').length
       const recognizedCount = [merged.nome, merged.cpf, merged.rg, merged.logradouro, merged.numero, merged.bairro, merged.cidade, merged.uf, merged.cep].filter(Boolean).length
-      if (identityChars < 20 && residenceChars < 20) {
-        throw new Error('O leitor não conseguiu obter texto dos arquivos. Tente uma foto nítida, sem reflexo, com o documento inteiro visível.')
-      }
       if (recognizedCount === 0) {
-        throw new Error('O documento foi lido, mas nenhum dado confiável foi identificado. Tente uma foto mais reta e próxima, sem cortar as bordas.')
+        throw new Error('O OCR conseguiu ler texto, mas nenhum campo confiável foi identificado. Confira a imagem e tente novamente.')
       }
       const extractedKeys = new Set<keyof PersonData>()
       ;(Object.keys(merged) as Array<keyof PersonData>).forEach((key) => { if (merged[key]) extractedKeys.add(key) })
@@ -157,12 +150,12 @@ export function NewDocumentFlow() {
       </div>
 
       {step === 1 && <section className="paperSection flowPaper">
-        <div className="sectionLead"><div className="sectionIcon"><Upload size={19}/></div><div><h2>Enviar documentos do cliente</h2><p>RG ou CNH e comprovante de residência. A leitura ocorre no navegador e os arquivos são armazenados em área privada.</p></div></div>
+        <div className="sectionLead"><div className="sectionIcon"><Upload size={19}/></div><div><h2>Enviar documentos do cliente</h2><p>RG ou CNH e comprovante de residência. A leitura é feita por OCR seguro no servidor; os arquivos originais continuam armazenados em área privada.</p></div></div>
         <div className="uploadGrid">
           <FileDrop title="RG ou CNH" description="Imagem ou PDF, até 10 MB" file={identityFile} inputRef={identityRef} onFile={(f) => { setIdentityFile(f); setError('') }} onClear={() => setIdentityFile(null)} />
           <FileDrop title="Comprovante de residência" description="Imagem ou PDF, até 10 MB" file={residenceFile} inputRef={residenceRef} onFile={(f) => { setResidenceFile(f); setError('') }} onClear={() => setResidenceFile(null)} />
         </div>
-        {processing && <div className="processingBox"><LoaderCircle className="spin" size={18}/><div><strong>Lendo documentos...</strong><span>Os campos só serão preenchidos quando houver texto identificado.</span></div><div className="progressTrack"><i style={{width:`${progress}%`}}/></div></div>}
+        {processing && <div className="processingBox"><LoaderCircle className="spin" size={18}/><div><strong>Lendo documentos...</strong><span>A imagem é enviada temporariamente ao leitor e os campos só são preenchidos quando houver dado identificado.</span></div><div className="progressTrack"><i style={{width:`${progress}%`}}/></div></div>}
         {error && <div className="formError" role="alert">{error}</div>}
         <div className="formActions end"><button className="primaryButton" onClick={processDocuments} disabled={processing || !identityFile || !residenceFile}><SearchCheck size={17}/>{processing ? 'Processando...' : 'Extrair e conferir dados'}</button></div>
       </section>}

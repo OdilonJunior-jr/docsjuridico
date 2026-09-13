@@ -1,6 +1,6 @@
 {
   "name": "juridico-docs",
-  "version": "1.6.0",
+  "version": "1.9.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -17,8 +17,7 @@
     "pdfjs-dist": "6.3.289",
     "pizzip": "3.2.0",
     "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "tesseract.js": "7.0.0"
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",

@@ -1,0 +1,10 @@
+DEPLOY VERCEL — V1.8
+
+1) Suba este projeto ao GitHub.
+2) Na Vercel > Project > Settings > Environment Variables, adicione:
+   GOOGLE_CLOUD_VISION_API_KEY = sua chave da Cloud Vision API
+3) Salve para Production, Preview e Development.
+4) Faça Redeploy.
+
+O projeto NÃO hardcodeia a chave no código e NÃO depende de SUPABASE_SECRET_KEY.
+A rota /api/ocr lê GOOGLE_CLOUD_VISION_API_KEY somente no servidor.
