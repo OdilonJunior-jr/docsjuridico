@@ -35,7 +35,7 @@ export function DocumentsList() {
     <div className="listToolbar"><div className="searchBox"><Search size={17}/><input value={query} onChange={(e)=>setQuery(e.target.value)} placeholder="Buscar por nome ou CPF" /></div></div>
     {error && <div className="formError">{error}</div>}
     {loading ? <div className="emptyState">Carregando...</div> : !filtered.length ? <div className="emptyState">Nenhum documento encontrado.</div> : <div className="dataList">
-      {filtered.map(row=><div className="dataRow documentDataRow" key={row.id}><div className="rowIcon"><FileText size={18}/></div><div className="rowMain"><strong>{row.kind==='procuracao'?'Procuração':'Declaração de hipossuficiência'}</strong><span>{row.clients?.full_name || 'Cliente'} • {new Intl.DateTimeFormat('pt-BR').format(new Date(row.created_at))}</span></div><div className="downloadActions"><button onClick={()=>download(row.docx_path)} title="Baixar DOCX"><Download size={15}/> DOCX</button>{row.pdf_path && <button onClick={()=>download(row.pdf_path)} title="Baixar PDF"><Download size={15}/> PDF</button>}</div></div>)}
+      {filtered.map(row=><div className="dataRow documentDataRow" key={row.id}><div className="rowIcon"><FileText size={18}/></div><div className="rowMain"><strong>{row.kind==='procuracao'?'Procuração':'Declaração de hipossuficiência'}</strong><span>{row.clients?.full_name || 'Cliente'} • {new Intl.DateTimeFormat('pt-BR').format(new Date(row.created_at))}</span></div><div className="downloadActions"><button onClick={()=>download(row.docx_path)} title="Baixar DOCX"><Download size={15}/> DOCX</button>{row.pdf_path && <button onClick={()=>download(row.pdf_path!)} title="Baixar PDF"><Download size={15}/> PDF</button>}</div></div>)}
     </div>}
   </section>
 }
