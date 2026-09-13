@@ -82,3 +82,9 @@ Para preservar isso, não edite os textos jurídicos no código. Se o modelo ofi
 ## PDF
 
 A conversão é feita por uma instância Gotenberg/LibreOffice. No `docker-compose.yml`, ela roda na mesma rede privada do app. Em produção com Vercel, use um Gotenberg protegido por HTTPS e Basic Auth, e configure `GOTENBERG_URL`, `GOTENBERG_USERNAME` e `GOTENBERG_PASSWORD`. Não exponha uma instância Gotenberg sem autenticação na internet.
+
+## Configuração Supabase desta versão
+
+Esta versão já possui o Project URL e a Publishable Key como fallback público no código. Portanto, para este projeto específico, o deploy pode abrir sem cadastrar essas duas variáveis na Vercel. Ainda assim, elas podem ser sobrescritas por `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` nas Environment Variables.
+
+A `SUPABASE_SECRET_KEY`/`service_role` **não é usada nem deve ser incluída no projeto ou GitHub**. Execute `supabase/migrations/001_initial.sql` uma única vez no SQL Editor do Supabase e crie o usuário em Authentication > Users.

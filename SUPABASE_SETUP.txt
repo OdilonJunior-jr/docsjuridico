@@ -1,0 +1,17 @@
+SUPABASE - CONFIGURAÇÃO NECESSÁRIA UMA ÚNICA VEZ
+
+1) Abra o Supabase > SQL Editor > New query.
+2) Cole e execute todo o arquivo: supabase/migrations/001_initial.sql
+3) Confirme em Table Editor as tabelas:
+   - clients
+   - source_files
+   - generated_documents
+4) Confirme em Storage os buckets privados:
+   - source-documents
+   - generated-documents
+5) Em Authentication > Users, crie o usuário que fará login no sistema.
+
+IMPORTANTE:
+- O projeto já está vinculado ao Project URL e à Publishable Key fornecidos.
+- A Secret Key NÃO é necessária para este sistema e NÃO foi adicionada ao código.
+- Se a Secret Key foi compartilhada em algum lugar, gere/rotacione uma nova no Supabase.
