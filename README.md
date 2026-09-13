@@ -95,3 +95,11 @@ A `SUPABASE_SECRET_KEY`/`service_role` **não é usada nem deve ser incluída no
 - PDFs escaneados usam renderização em maior resolução.
 - Parser ampliado para CNH brasileira (inclusive campo Documento de Identidade) e endereços sem rótulo explícito.
 - Campos ausentes continuam vazios; nenhuma informação é inventada.
+
+
+## OCR V1.6
+- Worker/WASM/language paths explicit for Vercel/Next.js.
+- First pass uses the original image with auto-rotation.
+- Second pass uses enlarged grayscale image only when needed.
+- CPF validation and CNH/address parsing were strengthened.
+- If OCR returns no usable text, the flow now stops with a clear error instead of showing an empty form.

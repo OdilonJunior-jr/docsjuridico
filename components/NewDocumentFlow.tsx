@@ -85,6 +85,16 @@ export function NewDocumentFlow() {
       const identity = parseBrazilianDocumentText(identityText)
       const residence = parseBrazilianDocumentText(residenceText)
       const merged = mergePerson(identity, residence)
+
+      const identityChars = identityText.replace(/\s/g, '').length
+      const residenceChars = residenceText.replace(/\s/g, '').length
+      const recognizedCount = [merged.nome, merged.cpf, merged.rg, merged.logradouro, merged.numero, merged.bairro, merged.cidade, merged.uf, merged.cep].filter(Boolean).length
+      if (identityChars < 20 && residenceChars < 20) {
+        throw new Error('O leitor não conseguiu obter texto dos arquivos. Tente uma foto nítida, sem reflexo, com o documento inteiro visível.')
+      }
+      if (recognizedCount === 0) {
+        throw new Error('O documento foi lido, mas nenhum dado confiável foi identificado. Tente uma foto mais reta e próxima, sem cortar as bordas.')
+      }
       const extractedKeys = new Set<keyof PersonData>()
       ;(Object.keys(merged) as Array<keyof PersonData>).forEach((key) => { if (merged[key]) extractedKeys.add(key) })
       setPerson(merged)
