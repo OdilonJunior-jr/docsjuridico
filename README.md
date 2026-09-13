@@ -31,6 +31,9 @@ Copie `.env.example` para `.env.local` e informe:
 NEXT_PUBLIC_SUPABASE_URL=https://SEU-PROJETO.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 GOTENBERG_URL=http://localhost:3001
+# Em produção, se habilitar Basic Auth no Gotenberg:
+GOTENBERG_USERNAME=juridico
+GOTENBERG_PASSWORD=uma-senha-forte
 ```
 
 Use somente a **publishable key** no app. Esta versão não usa service role key.
@@ -78,4 +81,4 @@ Para preservar isso, não edite os textos jurídicos no código. Se o modelo ofi
 
 ## PDF
 
-A conversão é feita por uma instância Gotenberg/LibreOffice. No `docker-compose.yml`, ela roda na mesma rede privada do app. Se o sistema for hospedado em uma plataforma serverless, mantenha o Gotenberg em um serviço privado e informe `GOTENBERG_URL`.
+A conversão é feita por uma instância Gotenberg/LibreOffice. No `docker-compose.yml`, ela roda na mesma rede privada do app. Em produção com Vercel, use um Gotenberg protegido por HTTPS e Basic Auth, e configure `GOTENBERG_URL`, `GOTENBERG_USERNAME` e `GOTENBERG_PASSWORD`. Não exponha uma instância Gotenberg sem autenticação na internet.

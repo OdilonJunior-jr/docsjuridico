@@ -71,7 +71,18 @@ export async function convertDocxToPdf(docx: Buffer, filename: string) {
   if (!baseUrl) throw new Error('Conversão para PDF não configurada.')
   const form = new FormData()
   form.append('files', new Blob([new Uint8Array(docx)], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }), filename)
-  const response = await fetch(`${baseUrl.replace(/\/$/, '')}/forms/libreoffice/convert`, { method: 'POST', body: form, cache: 'no-store' })
+  const username = process.env.GOTENBERG_USERNAME
+  const password = process.env.GOTENBERG_PASSWORD
+  const headers: Record<string, string> = {}
+  if (username && password) {
+    headers.Authorization = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`
+  }
+  const response = await fetch(`${baseUrl.replace(/\/$/, '')}/forms/libreoffice/convert`, {
+    method: 'POST',
+    body: form,
+    headers,
+    cache: 'no-store',
+  })
   if (!response.ok) throw new Error('Falha na conversão para PDF.')
   return Buffer.from(await response.arrayBuffer())
 }
