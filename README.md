@@ -1,31 +1,20 @@
-# Sistema de Documentos Jurídicos — V1.11
+# Documentos Jurídicos — V1.12
 
-Versão de teste pronta para GitHub → Vercel, mantendo Supabase, autenticação, RLS e storage privado.
+Versão focada em leitura fiel de PDFs digitais e CNH SENATRAN, mantendo o fluxo jurídico e os modelos originais.
 
-## O que mudou
-- OCR automático com OCR.Space no servidor.
-- Duas leituras (Engine 3 + Engine 2 quando disponível) para reduzir nomes/endereço com letras faltando.
-- CEP reconhecido é conferido no ViaCEP para normalizar logradouro, bairro, cidade e UF.
-- Procuração e Declaração de Hipossuficiência são geradas juntas.
-- Saída simultânea em Word (.docx) e PDF: 4 arquivos por geração.
-- PDF é gerado pelo próprio projeto, sem depender de Gotenberg.
-- Espaçamento dos modelos DOCX foi ajustado para manter o conteúdo variável dentro das áreas originais e evitar página em branco adicional.
-- Texto jurídico e dados fixos da advogada não foram alterados.
+## Correções desta versão
 
-## Fluxo
-1. Login.
-2. Novo documento.
-3. Envie RG/CNH + comprovante de residência.
-4. Extraia e confira os dados.
-5. Preencha somente os dados ausentes e os dados da pessoa jurídica exigidos pelo modelo da declaração.
-6. Clique em **Gerar os 2 documentos — Word + PDF**.
-7. Baixe Procuração DOCX/PDF e Declaração DOCX/PDF.
+- PDFs digitais: lê primeiro a camada de texto do próprio PDF (mais fiel que OCR para faturas e comprovantes).
+- Comprovante: procura nome/CPF em até 12 páginas; endereço é extraído do documento e conferido pelo CEP via ViaCEP.
+- CNH digital SENATRAN: recorta a área útil do cartão/MRZ antes do OCR para evitar que QR Code e rodapé/certificado virem falsos dados.
+- O parser rejeita frases de certificado digital/Assinador Serpro como nome.
+- MRZ da CNH é reconhecida como fonte adicional para o nome.
+- Nacionalidade pode ser extraída da CNH quando legível.
+- Complementos como CASA/APTO/BLOCO são preservados junto ao número para não perder parte do endereço.
+- Quando comprovante e identidade trazem o mesmo CPF, o nome do comprovante digital serve como confirmação contra ruído do OCR da CNH.
+- Geração continua criando 4 arquivos: procuração DOCX/PDF + declaração DOCX/PDF.
+- Modelos jurídicos e dados fixos da advogada não foram alterados.
 
-## Observação sobre a leitura
-O sistema nunca deve inventar informação ausente. CNH/RG e comprovante normalmente não trazem estado civil, profissão e dados da empresa; esses campos devem permanecer vazios até preenchimento/conferência humana.
+## Observação importante
 
-## OCR de teste
-A aplicação usa `OCRSPACE_API_KEY` se ela existir na Vercel. Para teste, quando a variável não estiver configurada, usa a chave pública limitada `helloworld` do OCR.Space.
-
-## Deploy
-Suba o conteúdo desta pasta no mesmo repositório já conectado à Vercel. Não é necessário rodar novamente o SQL do Supabase se as tabelas e buckets da versão anterior já estão funcionando.
+A declaração original enviada é de pessoa jurídica. Portanto, razão social, CNPJ e endereço da empresa continuam obrigatórios para gerar essa declaração. O sistema não inventa esses dados a partir de CNH/comprovante residencial.

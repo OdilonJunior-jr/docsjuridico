@@ -1,7 +1,7 @@
 import type { ExtractionResult } from '@/lib/types'
 
 const STREET_WORDS = /\b(RUA|R\.?|AV(?:ENIDA)?\.?|ALAMEDA|AL\.?|TRAVESSA|TV\.?|RODOVIA|ROD\.?|ESTRADA|EST\.?|PRA[CÇ]A|PCA\.?|LARGO|VIELA|VIA|FAZENDA|S[IÍ]TIO|CH[AÁ]CARA)\b/i
-const BAD_NAME = /REP[ÚU]BLICA|FEDERATIVA|BRASIL|CARTEIRA|NACIONAL|HABILITA[CÇ][AÃ]O|DRIVER|LICENSE|VALIDADE|EMISS[AÃ]O|IDENTIDADE|DOCUMENTO|ASSINATURA|FILIA[CÇ][AÃ]O|DETRAN|SECRETARIA|MINIST[EÉ]RIO|TRANSPORTES|CPF|NASCIMENTO|REGISTRO|CATEGORIA|PERMISS[AÃ]O|ENDERE[CÇ]O|UNIDADE|CONSUMIDORA|FATURA|ENERGIA|[ÁA]GUA|TELEFONE|CLIENTE|VENCIMENTO|INSTALA[CÇ][AÃ]O/i
+const BAD_NAME = /REP[ÚU]BLICA|FEDERATIVA|BRASIL|CARTEIRA|NACIONAL|HABILITA[CÇ][AÃ]O|DRIVER|LICENSE|VALIDADE|EMISS[AÃ]O|IDENTIDADE|DOCUMENTO|ASSINATURA|FILIA[CÇ][AÃ]O|DETRAN|SECRETARIA|MINIST[EÉ]RIO|TRANSPORTES|CPF|NASCIMENTO|REGISTRO|CATEGORIA|PERMISS[AÃ]O|ENDERE[CÇ]O|UNIDADE|CONSUMIDORA|FATURA|ENERGIA|[ÁA]GUA|TELEFONE|CLIENTE|VENCIMENTO|INSTALA[CÇ][AÃ]O|IDENTIFICA[CÇ][AÃ]O|D[ÉE]BITO|CERTIFICADO|DIGITAL|CONFORMIDADE|CONFIRMAD[AO]|PROGRAMA|ASSINADOR|SERPRO|ORIENTA[CÇ][OÕ]ES|VALIDA[CÇ][AÃ]O|DISPON[IÍ]VEIS|ACESS[EO]|SITE|HTTPS?/i
 const LABEL_ONLY = /^(?:\d+[A-Z]?\s*)?(?:NOME(?:\s+E\s+SOBRENOME)?|NAME(?:\s+AND\s+SURNAME)?|CPF(?:\s*\/\s*DATA\s+NASCIMENTO)?|DATA\s+(?:DE\s+)?NASCIMENTO|NASCIMENTO|DOC\.?\s*IDENTIDADE(?:\s*\/.*)?|DOCUMENTO\s+DE\s+IDENTIDADE|IDENTIDADE|RG|ENDERE[CÇ]O(?:\s+DA\s+UNIDADE\s+CONSUMIDORA)?|LOGRADOURO|BAIRRO|MUNIC[IÍ]PIO|CIDADE|CEP|UF|FILIA[CÇ][AÃ]O|ASSINATURA|VALIDADE|DATA\s+EMISS[AÃ]O|N[º°O]?\s*REGISTRO|REGISTRO|HABILITA[CÇ][AÃ]O|CATEGORIA|LOCAL\s+E\s+UF\s+DE\s+NASCIMENTO)\s*[:\-\/]?\s*$/i
 const ADDRESS_NOISE = /CPF|CNPJ|CLIENTE|CONTA|INSTALA[CÇ][AÃ]O|REFER[EÊ]NCIA|VENCIMENTO|TOTAL|ENERGIA|[ÁA]GUA|TELEFONE|FATURA|ENDERE[CÇ]O|UNIDADE|CONSUMIDORA|MEDIDOR|LEITURA|EMISS[AÃ]O|PAGAMENTO|DOCUMENTO|PROTOCOLO/i
 
@@ -114,8 +114,30 @@ function firstCep(text: string, lines: string[]) {
   return ''
 }
 
+function mrzName(lines: string[]) {
+  for (const line of lines) {
+    const compact = line.toUpperCase().replace(/\s+/g, '')
+    if (!compact.includes('<<') || !/[A-Z]{2,}<+[A-Z]{2,}/.test(compact)) continue
+    const candidate = compact.replace(/^[A-Z0-9<]{0,3}(?=[A-Z]{2,}<<)/, '').replace(/<+/g, ' ').replace(/[^A-Z ]/g, ' ').replace(/\s+/g, ' ').trim()
+    if (looksLikeName(candidate)) return candidate
+  }
+  return ''
+}
+
+function findNationality(lines: string[]) {
+  for (let i = 0; i < lines.length; i++) {
+    if (!/NACIONALIDADE|NATIONALITY/i.test(normalize(lines[i]))) continue
+    const same = clean(lines[i].replace(/^.*?(?:NACIONALIDADE|NATIONALITY)\s*[:\-]?\s*/i, ''))
+    const value = same && !LABEL_ONLY.test(same) ? same : nextUseful(lines, i, v => /^[A-ZÀ-Ÿ() .-]{4,35}$/i.test(v) && !LABEL_ONLY.test(v), 2)
+    if (value) return clean(value).toLowerCase()
+  }
+  return ''
+}
+
 function findName(lines: string[]) {
-  const labels = [/NOME\s+E\s+SOBRENOME/i, /NOME\s+DO\s+TITULAR/i, /NOME\s+DO\s+CLIENTE/i, /\bNOME\b/i, /NAME\s+AND\s+SURNAME/i]
+  const mrz = mrzName(lines)
+  if (mrz) return mrz
+  const labels = [/NOME\s+E\s+SOBRENOME/i, /NOME\s+DO\s+TITULAR/i, /NOME\s+DO\s+CLIENTE/i, /^CLIENTE$/i, /\bNOME\b/i, /NAME\s+AND\s+SURNAME/i]
   const candidates: string[] = []
 
   for (let i = 0; i < lines.length; i++) {
@@ -160,12 +182,14 @@ function findIdentity(lines: string[], text: string) {
       if (next) return clean(next)
     }
   }
-  const match = text.match(/(?:RG|IDENTIDADE)\s*[:\-]?\s*([A-Z]{0,6}\s*\d[\d.\-\/\s]{3,25}(?:\s+[A-Z]{2,12})?)/i)
+  const match = text.match(/(?:\bRG\b|IDENTIDADE)\s*[:\-]?\s*([A-Z]{0,6}\s*\d[\d.\-\/\s]{3,25}(?:\s+[A-Z]{2,12})?)/i)
   return match ? clean(match[1]) : ''
 }
 
 function cityUfFromLine(line: string) {
   const n = clean(line).toUpperCase()
+  const cepPrefixed = n.match(/^(?:\d{5}[-. ]?\d{3})\s*[-–—]?\s*([A-ZÀ-Ÿ][A-ZÀ-Ÿ .'\-]{2,55})\s+([A-Z]{2})\b/)
+  if (cepPrefixed) return { cidade: clean(cepPrefixed[1]), uf: cepPrefixed[2] }
   const match = n.match(/^([A-ZÀ-Ÿ][A-ZÀ-Ÿ .'\-]{2,55})\s*(?:\/|\s+-\s+|-)\s*([A-Z]{2})\b/)
   if (!match) return null
   const city = clean(match[1])
@@ -233,6 +257,7 @@ function parseAddress(lines: string[], text: string) {
   const blockEnd = [cepIndex, cityIndex].filter(i => i > streetIndex).sort((a,b) => a-b)[0] ?? Math.min(lines.length, streetIndex + 6)
   if (streetIndex >= 0) {
     const block = lines.slice(streetIndex + 1, Math.min(lines.length, blockEnd + 1))
+    const complement = block.find(v => /^(?:CASA|AP(?:ARTAMENTO|TO)?|BLOCO|BL|SALA|LOTE|LT|QUADRA|QD|FUNDOS)\b/i.test(v)) || ''
     if (!numero) {
       for (const line of block) {
         const n = normalize(line)
@@ -249,6 +274,7 @@ function parseAddress(lines: string[], text: string) {
       if (candidates.length === 1) bairro = candidates[0]
       else if (candidates.length > 1) bairro = candidates[candidates.length - 1]
     }
+    if (numero && complement && !normalize(numero).includes(normalize(complement))) numero = `${numero}, ${clean(complement)}`
   }
 
   return { cep, logradouro, numero, bairro, cidade, uf }
@@ -289,6 +315,7 @@ function chooseText(a?: string, b?: string) {
 export function mergeExtractionCandidates(primary: ExtractionResult, secondary: ExtractionResult): ExtractionResult {
   return {
     nome: chooseName(primary.nome, secondary.nome),
+    nacionalidade: chooseText(primary.nacionalidade, secondary.nacionalidade),
     cpf: primary.cpf || secondary.cpf || '',
     rg: chooseRg(primary.rg, secondary.rg),
     logradouro: chooseText(primary.logradouro, secondary.logradouro),
@@ -306,6 +333,7 @@ export function parseBrazilianDocumentText(rawText: string): ExtractionResult {
   const lines = linesFrom(text)
   return {
     nome: findName(lines),
+    nacionalidade: findNationality(lines),
     cpf: firstCpf(text, lines),
     rg: findIdentity(lines, text),
     ...parseAddress(lines, text),

@@ -18,8 +18,14 @@ type GeneratedFile = { kind: DocumentKind; format: 'docx' | 'pdf'; url: string; 
 const allowedTypes = ['image/jpeg','image/png','image/webp','application/pdf']
 
 function mergePerson(identity: Partial<PersonData>, residence: Partial<PersonData>): PersonData {
+  const identityCpf = String(identity.cpf || '').replace(/\D/g, '')
+  const residenceCpf = String(residence.cpf || '').replace(/\D/g, '')
+  const sameCpf = Boolean(identityCpf && residenceCpf && identityCpf === residenceCpf)
+  // Quando o comprovante digital traz o mesmo CPF da identificação, o nome do comprovante
+  // serve como confirmação contra ruídos do OCR da CNH (QR/rodapé/certificado).
+  const confirmedName = sameCpf && residence.nome ? residence.nome : (identity.nome || residence.nome || '')
   return {
-    nome: identity.nome || residence.nome || '',
+    nome: confirmedName,
     nacionalidade: identity.nacionalidade || '',
     estadoCivil: identity.estadoCivil || '',
     profissao: identity.profissao || '',

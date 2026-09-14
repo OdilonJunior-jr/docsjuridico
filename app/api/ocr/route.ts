@@ -29,12 +29,11 @@ function normalizeProviderError(payload: OcrSpaceResponse): string {
 async function runOcr(file: File, apiKey: string, engine: 2 | 3, kind: 'identity' | 'residence'): Promise<ProviderResult> {
   const upstream = new FormData()
   upstream.append('file', file, file.name || 'documento.jpg')
-  upstream.append('language', 'auto')
+  upstream.append('language', 'por')
   upstream.append('OCREngine', String(engine))
   upstream.append('isOverlayRequired', 'false')
   upstream.append('detectOrientation', 'true')
   upstream.append('scale', 'true')
-  if (kind === 'residence') upstream.append('isTable', 'true')
 
   const response = await fetch('https://api.ocr.space/parse/image', {
     method: 'POST', headers: { apikey: apiKey }, body: upstream, cache: 'no-store',
@@ -99,7 +98,7 @@ export async function POST(request: Request) {
 
     let parsed = primary.parsed
     let text = primary.text
-    if (primaryEngine === 3 || needsFallback(kind, parsed)) {
+    if (needsFallback(kind, parsed)) {
       try {
         const secondary = await runOcr(file, apiKey, 2, kind)
         parsed = mergeExtractionCandidates(parsed, secondary.parsed)
@@ -111,8 +110,8 @@ export async function POST(request: Request) {
     if (!text.trim()) return NextResponse.json({ ok: true, text: '', parsed: {} })
 
     const safeParsed = kind === 'identity'
-      ? { nome: parsed.nome || '', cpf: parsed.cpf || '', rg: parsed.rg || '', rawText: text }
-      : { logradouro: parsed.logradouro || '', numero: parsed.numero || '', bairro: parsed.bairro || '', cidade: parsed.cidade || '', uf: parsed.uf || '', cep: parsed.cep || '', rawText: text }
+      ? { nome: parsed.nome || '', nacionalidade: parsed.nacionalidade || '', cpf: parsed.cpf || '', rg: parsed.rg || '', rawText: text }
+      : { nome: parsed.nome || '', cpf: parsed.cpf || '', logradouro: parsed.logradouro || '', numero: parsed.numero || '', bairro: parsed.bairro || '', cidade: parsed.cidade || '', uf: parsed.uf || '', cep: parsed.cep || '', rawText: text }
 
     return NextResponse.json({ ok: true, text, parsed: safeParsed })
   } catch (error) {

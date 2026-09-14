@@ -1,0 +1,9 @@
+V1.12 — correções de leitura
+
+1. Não usa OCR para substituir uma camada de texto digital boa: PDFs de fatura são lidos diretamente.
+2. CNH SENATRAN recebe recorte focado no cartão antes do OCR.
+3. Frases como "ser confirmada por meio do programa Assinador Serpro" são bloqueadas como falso nome.
+4. Nome/CPF do comprovante podem corroborar a identificação quando o CPF coincide.
+5. CEP confere logradouro, bairro, cidade e UF pelo ViaCEP.
+6. Complemento de endereço (CASA/APTO/BLOCO) é preservado.
+7. Os dois documentos continuam sendo gerados em Word e PDF (4 arquivos).
