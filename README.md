@@ -1,14 +1,31 @@
-# Sistema de Documentos Jurídicos — V1.9 pronta para deploy
+# Sistema de Documentos Jurídicos — V1.11
 
-Versão preparada para GitHub → Vercel com Supabase já vinculado e Google Cloud Vision já configurado no servidor.
+Versão de teste pronta para GitHub → Vercel, mantendo Supabase, autenticação, RLS e storage privado.
 
-## Uso
-1. Suba os arquivos deste projeto no GitHub.
-2. Importe o repositório na Vercel ou deixe o projeto já conectado fazer redeploy.
-3. Abra o sistema e faça login.
-4. Em Novo documento, envie CNH/RG e comprovante em foto JPG/PNG/WebP.
-5. Clique para ler os documentos e confira os campos antes de gerar.
+## O que mudou
+- OCR automático com OCR.Space no servidor.
+- Duas leituras (Engine 3 + Engine 2 quando disponível) para reduzir nomes/endereço com letras faltando.
+- CEP reconhecido é conferido no ViaCEP para normalizar logradouro, bairro, cidade e UF.
+- Procuração e Declaração de Hipossuficiência são geradas juntas.
+- Saída simultânea em Word (.docx) e PDF: 4 arquivos por geração.
+- PDF é gerado pelo próprio projeto, sem depender de Gotenberg.
+- Espaçamento dos modelos DOCX foi ajustado para manter o conteúdo variável dentro das áreas originais e evitar página em branco adicional.
+- Texto jurídico e dados fixos da advogada não foram alterados.
 
-O OCR usa Google Cloud Vision na rota server-side `/api/ocr`. O banco, autenticação e storage continuam no Supabase.
+## Fluxo
+1. Login.
+2. Novo documento.
+3. Envie RG/CNH + comprovante de residência.
+4. Extraia e confira os dados.
+5. Preencha somente os dados ausentes e os dados da pessoa jurídica exigidos pelo modelo da declaração.
+6. Clique em **Gerar os 2 documentos — Word + PDF**.
+7. Baixe Procuração DOCX/PDF e Declaração DOCX/PDF.
 
-Importante: esta cópia contém a chave do Google Vision embutida no código servidor a pedido do proprietário para deploy sem configuração manual. Se o repositório for público, a chave poderá ser vista no código-fonte do repositório.
+## Observação sobre a leitura
+O sistema nunca deve inventar informação ausente. CNH/RG e comprovante normalmente não trazem estado civil, profissão e dados da empresa; esses campos devem permanecer vazios até preenchimento/conferência humana.
+
+## OCR de teste
+A aplicação usa `OCRSPACE_API_KEY` se ela existir na Vercel. Para teste, quando a variável não estiver configurada, usa a chave pública limitada `helloworld` do OCR.Space.
+
+## Deploy
+Suba o conteúdo desta pasta no mesmo repositório já conectado à Vercel. Não é necessário rodar novamente o SQL do Supabase se as tabelas e buckets da versão anterior já estão funcionando.

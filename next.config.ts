@@ -14,6 +14,8 @@ const nextConfig: NextConfig = {
   // only for Docker/self-hosted builds.
   output: process.env.VERCEL ? undefined : 'standalone',
   poweredByHeader: false,
+  // Garante que os modelos binários usados na rota server-side acompanhem o deploy da Vercel.
+  outputFileTracingIncludes: { '/api/documents/generate': ['./templates/**/*'] },
   async headers() {
     return [{ source: '/(.*)', headers: securityHeaders }]
   },

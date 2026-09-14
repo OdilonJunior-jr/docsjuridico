@@ -14,6 +14,7 @@ const emptyCompany: CompanyData = {
 }
 
 type SourcePath = { kind: 'identity' | 'residence'; path: string; mimeType: string; originalName: string }
+type GeneratedFile = { kind: DocumentKind; format: 'docx' | 'pdf'; url: string; filename: string }
 const allowedTypes = ['image/jpeg','image/png','image/webp','application/pdf']
 
 function mergePerson(identity: Partial<PersonData>, residence: Partial<PersonData>): PersonData {
@@ -33,13 +34,18 @@ function mergePerson(identity: Partial<PersonData>, residence: Partial<PersonDat
   }
 }
 
-function requiredPerson(kind: DocumentKind, p: PersonData) {
-  const common: Array<[keyof PersonData,string]> = [['nome','Nome'],['nacionalidade','Nacionalidade'],['estadoCivil','Estado civil'],['profissao','Profissão'],['cpf','CPF'],['rg','RG'],['logradouro','Logradouro'],['numero','Número'],['bairro','Bairro'],['cidade','Cidade'],['uf','UF']]
-  if (kind === 'procuracao') common.push(['cep','CEP'])
-  return common.filter(([key]) => !p[key].trim()).map(([,label]) => label)
+function requiredPerson(p: PersonData) {
+  const fields: Array<[keyof PersonData,string]> = [
+    ['nome','Nome'],['nacionalidade','Nacionalidade'],['estadoCivil','Estado civil'],['profissao','Profissão'],['cpf','CPF'],['rg','RG'],
+    ['logradouro','Logradouro'],['numero','Número'],['bairro','Bairro'],['cidade','Cidade'],['uf','UF'],['cep','CEP'],
+  ]
+  return fields.filter(([key]) => !p[key].trim()).map(([,label]) => label)
 }
 function requiredCompany(c: CompanyData) {
-  const fields: Array<[keyof CompanyData,string]> = [['empresaNome','Razão social'],['cnpj','CNPJ'],['empresaLogradouro','Logradouro da empresa'],['empresaNumero','Número da empresa'],['empresaBairro','Bairro da empresa'],['empresaCidade','Cidade da empresa'],['empresaUf','UF da empresa']]
+  const fields: Array<[keyof CompanyData,string]> = [
+    ['empresaNome','Razão social'],['cnpj','CNPJ'],['empresaLogradouro','Logradouro da empresa'],['empresaNumero','Número da empresa'],
+    ['empresaBairro','Bairro da empresa'],['empresaCidade','Cidade da empresa'],['empresaUf','UF da empresa'],
+  ]
   return fields.filter(([key]) => !c[key].trim()).map(([,label]) => label)
 }
 function safeName(name: string) { return name.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 100) }
@@ -50,22 +56,17 @@ export function NewDocumentFlow() {
   const [residenceFile, setResidenceFile] = useState<File | null>(null)
   const [person, setPerson] = useState<PersonData>(emptyPerson)
   const [company, setCompany] = useState<CompanyData>(emptyCompany)
-  const [kind, setKind] = useState<DocumentKind>('procuracao')
   const [sourcePaths, setSourcePaths] = useState<SourcePath[]>([])
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
-  const [generating, setGenerating] = useState<'docx'|'pdf'|null>(null)
+  const [generating, setGenerating] = useState(false)
   const [error, setError] = useState('')
-  const [download, setDownload] = useState<{url:string; filename:string} | null>(null)
+  const [downloads, setDownloads] = useState<GeneratedFile[]>([])
   const [extracted, setExtracted] = useState<Set<keyof PersonData>>(new Set())
   const identityRef = useRef<HTMLInputElement>(null)
   const residenceRef = useRef<HTMLInputElement>(null)
 
-  const missing = useMemo(() => {
-    const values = requiredPerson(kind, person)
-    if (kind === 'hipossuficiencia') values.push(...requiredCompany(company))
-    return values
-  }, [kind, person, company])
+  const missing = useMemo(() => [...requiredPerson(person), ...requiredCompany(company)], [person, company])
 
   function validateFile(file: File) {
     if (!allowedTypes.includes(file.type)) return 'Use JPG, PNG, WEBP ou PDF.'
@@ -77,7 +78,7 @@ export function NewDocumentFlow() {
     if (!identityFile || !residenceFile) { setError('Envie o RG ou CNH e o comprovante de residência.'); return }
     const e1 = validateFile(identityFile), e2 = validateFile(residenceFile)
     if (e1 || e2) { setError(e1 || e2); return }
-    setError(''); setProcessing(true); setProgress(0); setDownload(null)
+    setError(''); setProcessing(true); setProgress(0); setDownloads([])
     try {
       const identity = await extractDataFromFile(identityFile, 'identity', (p) => setProgress(Math.max(5, Math.round(p * 45))))
       setProgress(50)
@@ -85,9 +86,8 @@ export function NewDocumentFlow() {
       const merged = mergePerson(identity, residence)
 
       const recognizedCount = [merged.nome, merged.cpf, merged.rg, merged.logradouro, merged.numero, merged.bairro, merged.cidade, merged.uf, merged.cep].filter(Boolean).length
-      if (recognizedCount === 0) {
-        throw new Error('O OCR conseguiu ler texto, mas nenhum campo confiável foi identificado. Confira a imagem e tente novamente.')
-      }
+      if (recognizedCount === 0) throw new Error('O leitor não identificou nenhum campo confiável. Tente fotos mais nítidas e enquadradas.')
+
       const extractedKeys = new Set<keyof PersonData>()
       ;(Object.keys(merged) as Array<keyof PersonData>).forEach((key) => { if (merged[key]) extractedKeys.add(key) })
       setPerson(merged)
@@ -123,45 +123,57 @@ export function NewDocumentFlow() {
     setCompany((old) => ({ ...old, [key]: value }))
   }
 
-  async function generate(output: 'docx'|'pdf') {
-    setError(''); setDownload(null)
+  async function generateAll() {
+    setError(''); setDownloads([])
     if (missing.length) { setError(`Preencha antes de gerar: ${missing.join(', ')}.`); return }
-    setGenerating(output)
+    setGenerating(true)
     try {
       const response = await fetch('/api/documents/generate', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind, person, company: kind === 'hipossuficiencia' ? company : undefined, output, sourcePaths }),
+        body: JSON.stringify({ person, company, sourcePaths }),
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Falha na geração.')
-      setDownload({ url: data.url, filename: data.filename })
+      const files = Array.isArray(data.files) ? data.files.filter((f: GeneratedFile) => f?.url && f?.filename) : []
+      if (files.length !== 4) throw new Error('Os documentos foram processados, mas nem todos os quatro arquivos ficaram disponíveis para download.')
+      setDownloads(files)
       setStep(3)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Não foi possível gerar o documento.')
-    } finally { setGenerating(null) }
+      setError(e instanceof Error ? e.message : 'Não foi possível gerar os documentos.')
+    } finally { setGenerating(false) }
   }
+
+  function reset() {
+    setStep(1); setIdentityFile(null); setResidenceFile(null); setPerson(emptyPerson); setCompany(emptyCompany)
+    setSourcePaths([]); setDownloads([]); setExtracted(new Set()); setError(''); setProgress(0)
+    if (identityRef.current) identityRef.current.value = ''
+    if (residenceRef.current) residenceRef.current.value = ''
+  }
+
+  const procFiles = downloads.filter(file => file.kind === 'procuracao')
+  const declFiles = downloads.filter(file => file.kind === 'hipossuficiencia')
 
   return (
     <div className="flowShell">
       <div className="flowSteps" aria-label="Etapas">
         <span className={step >= 1 ? 'step active' : 'step'}><b>1</b> Envio</span>
         <span className={step >= 2 ? 'step active' : 'step'}><b>2</b> Conferência</span>
-        <span className={step >= 3 ? 'step active' : 'step'}><b>3</b> Documento</span>
+        <span className={step >= 3 ? 'step active' : 'step'}><b>3</b> Documentos</span>
       </div>
 
       {step === 1 && <section className="paperSection flowPaper">
-        <div className="sectionLead"><div className="sectionIcon"><Upload size={19}/></div><div><h2>Enviar documentos do cliente</h2><p>RG ou CNH e comprovante de residência. A leitura é feita por OCR seguro no servidor; os arquivos originais continuam armazenados em área privada.</p></div></div>
+        <div className="sectionLead"><div className="sectionIcon"><Upload size={19}/></div><div><h2>Enviar documentos do cliente</h2><p>RG ou CNH e comprovante de residência. O sistema faz duas leituras quando necessário e usa o CEP reconhecido para conferir a grafia do endereço.</p></div></div>
         <div className="uploadGrid">
           <FileDrop title="RG ou CNH" description="Imagem ou PDF, até 10 MB" file={identityFile} inputRef={identityRef} onFile={(f) => { setIdentityFile(f); setError('') }} onClear={() => setIdentityFile(null)} />
           <FileDrop title="Comprovante de residência" description="Imagem ou PDF, até 10 MB" file={residenceFile} inputRef={residenceRef} onFile={(f) => { setResidenceFile(f); setError('') }} onClear={() => setResidenceFile(null)} />
         </div>
-        {processing && <div className="processingBox"><LoaderCircle className="spin" size={18}/><div><strong>Lendo documentos...</strong><span>A imagem é enviada temporariamente ao leitor e os campos só são preenchidos quando houver dado identificado.</span></div><div className="progressTrack"><i style={{width:`${progress}%`}}/></div></div>}
+        {processing && <div className="processingBox"><LoaderCircle className="spin" size={18}/><div><strong>Lendo documentos...</strong><span>Nome, CPF, RG e endereço são extraídos somente quando houver leitura confiável. Nenhum dado ausente é inventado.</span></div><div className="progressTrack"><i style={{width:`${progress}%`}}/></div></div>}
         {error && <div className="formError" role="alert">{error}</div>}
         <div className="formActions end"><button className="primaryButton" onClick={processDocuments} disabled={processing || !identityFile || !residenceFile}><SearchCheck size={17}/>{processing ? 'Processando...' : 'Extrair e conferir dados'}</button></div>
       </section>}
 
       {step === 2 && <section className="paperSection flowPaper">
-        <div className="sectionLead"><div className="sectionIcon"><FileCheck2 size={19}/></div><div><h2>Conferência dos dados</h2><p>Revise tudo. Campos que não foram identificados permanecem vazios e precisam ser preenchidos manualmente.</p></div></div>
+        <div className="sectionLead"><div className="sectionIcon"><FileCheck2 size={19}/></div><div><h2>Conferência dos dados</h2><p>Revise a leitura antes de gerar. CNH/RG e comprovante não informam necessariamente estado civil, profissão ou dados da empresa; esses campos ficam vazios até você preencher.</p></div></div>
         <div className="subsectionTitle"><span>Dados do cliente / representante</span><em>Obrigatório revisar</em></div>
         <div className="fieldsGrid">
           <Field label="Nome completo" value={person.nome} onChange={(v)=>updatePerson('nome',v)} extracted={extracted.has('nome')} wide />
@@ -178,46 +190,50 @@ export function NewDocumentFlow() {
           <Field label="CEP" value={person.cep} onChange={(v)=>updatePerson('cep',v)} extracted={extracted.has('cep')} />
         </div>
 
-        <div className="subsectionTitle documentChoiceTitle"><span>Documento a gerar</span></div>
-        <div className="documentChoice">
-          <button className={kind === 'procuracao' ? 'choice active' : 'choice'} onClick={()=>setKind('procuracao')}><FileText size={20}/><span><strong>Procuração</strong><small>Usa o modelo original do escritório.</small></span>{kind === 'procuracao' && <Check size={18}/>}</button>
-          <button className={kind === 'hipossuficiencia' ? 'choice active' : 'choice'} onClick={()=>setKind('hipossuficiencia')}><FileText size={20}/><span><strong>Declaração de hipossuficiência</strong><small>Modelo original de pessoa jurídica.</small></span>{kind === 'hipossuficiencia' && <Check size={18}/>}</button>
+        <div className="subsectionTitle"><span>Dados da pessoa jurídica</span><em>Necessários para a declaração original</em></div>
+        <div className="fieldsGrid">
+          <Field label="Razão social / nome empresarial" value={company.empresaNome} onChange={(v)=>updateCompany('empresaNome',v)} wide />
+          <Field label="CNPJ" value={company.cnpj} onChange={(v)=>updateCompany('cnpj',v)} />
+          <Field label="Logradouro da empresa" value={company.empresaLogradouro} onChange={(v)=>updateCompany('empresaLogradouro',v)} wide />
+          <Field label="Número" value={company.empresaNumero} onChange={(v)=>updateCompany('empresaNumero',v)} />
+          <Field label="Bairro" value={company.empresaBairro} onChange={(v)=>updateCompany('empresaBairro',v)} />
+          <Field label="Cidade" value={company.empresaCidade} onChange={(v)=>updateCompany('empresaCidade',v)} />
+          <Field label="UF" value={company.empresaUf} onChange={(v)=>updateCompany('empresaUf',v.toUpperCase().slice(0,2))} />
         </div>
 
-        {kind === 'hipossuficiencia' && <>
-          <div className="subsectionTitle"><span>Dados da pessoa jurídica</span><em>Preencha somente o que constar nos documentos do cliente</em></div>
-          <div className="fieldsGrid">
-            <Field label="Razão social / nome empresarial" value={company.empresaNome} onChange={(v)=>updateCompany('empresaNome',v)} wide />
-            <Field label="CNPJ" value={company.cnpj} onChange={(v)=>updateCompany('cnpj',v)} />
-            <Field label="Logradouro da empresa" value={company.empresaLogradouro} onChange={(v)=>updateCompany('empresaLogradouro',v)} wide />
-            <Field label="Número" value={company.empresaNumero} onChange={(v)=>updateCompany('empresaNumero',v)} />
-            <Field label="Bairro" value={company.empresaBairro} onChange={(v)=>updateCompany('empresaBairro',v)} />
-            <Field label="Cidade" value={company.empresaCidade} onChange={(v)=>updateCompany('empresaCidade',v)} />
-            <Field label="UF" value={company.empresaUf} onChange={(v)=>updateCompany('empresaUf',v.toUpperCase().slice(0,2))} />
-          </div>
-        </>}
-
-        <div className="securityNote"><LockKeyhole size={16}/><span>Os modelos jurídicos são usados como base fixa. Somente os campos variáveis acima e a data atual são substituídos.</span></div>
+        <div className="outputSummary">
+          <FileText size={18}/><div><strong>Serão gerados 4 arquivos</strong><span>Procuração em Word e PDF + Declaração de hipossuficiência em Word e PDF.</span></div>
+        </div>
+        <div className="securityNote"><LockKeyhole size={16}/><span>Os textos jurídicos e os dados fixos da advogada permanecem nos modelos originais. Só os campos variáveis e a data atual são substituídos.</span></div>
         {missing.length > 0 && <div className="missingNotice">Campos pendentes: {missing.join(', ')}.</div>}
         {error && <div className="formError" role="alert">{error}</div>}
         <div className="formActions between">
           <button className="secondaryButton" onClick={()=>setStep(1)}><ChevronLeft size={17}/> Voltar</button>
-          <div className="buttonGroup">
-            <button className="secondaryButton strong" disabled={Boolean(generating)} onClick={()=>generate('docx')}>{generating === 'docx' ? <LoaderCircle className="spin" size={17}/> : <FileText size={17}/>} Gerar DOCX</button>
-            <button className="primaryButton" disabled={Boolean(generating)} onClick={()=>generate('pdf')}>{generating === 'pdf' ? <LoaderCircle className="spin" size={17}/> : <FileText size={17}/>} Gerar PDF</button>
-          </div>
+          <button className="primaryButton" disabled={generating} onClick={generateAll}>{generating ? <LoaderCircle className="spin" size={17}/> : <FileText size={17}/>} {generating ? 'Gerando 4 arquivos...' : 'Gerar os 2 documentos — Word + PDF'}</button>
         </div>
       </section>}
 
       {step === 3 && <section className="paperSection flowPaper resultPaper">
         <div className="resultIcon"><Check size={26}/></div>
-        <h2>Documento gerado</h2>
-        <p>O arquivo foi criado a partir do modelo original e salvo no armazenamento privado do escritório.</p>
-        {download && <a className="primaryButton" href={download.url} target="_blank" rel="noreferrer"><FileText size={17}/> Abrir {download.filename.endsWith('.pdf') ? 'PDF' : 'DOCX'}</a>}
-        <button className="textButton" onClick={()=>{setStep(1);setIdentityFile(null);setResidenceFile(null);setPerson(emptyPerson);setCompany(emptyCompany);setSourcePaths([]);setDownload(null);setExtracted(new Set())}}>Criar outro documento</button>
+        <h2>Documentos gerados</h2>
+        <p>Procuração e declaração foram criadas nos dois formatos e salvas no armazenamento privado do escritório.</p>
+        <div className="resultFiles">
+          <ResultGroup title="Procuração" files={procFiles} />
+          <ResultGroup title="Declaração de hipossuficiência" files={declFiles} />
+        </div>
+        <button className="textButton" onClick={reset}>Criar outro documento</button>
       </section>}
     </div>
   )
+}
+
+function ResultGroup({ title, files }: { title: string; files: GeneratedFile[] }) {
+  return <div className="resultFileGroup"><strong>{title}</strong><div>
+    {(['docx','pdf'] as const).map(format => {
+      const file = files.find(item => item.format === format)
+      return file ? <a key={format} className={format === 'pdf' ? 'primaryButton' : 'secondaryButton strong'} href={file.url} target="_blank" rel="noreferrer"><FileText size={16}/> {format === 'pdf' ? 'PDF' : 'Word (.docx)'}</a> : null
+    })}
+  </div></div>
 }
 
 function FileDrop({ title, description, file, inputRef, onFile, onClear }: { title:string; description:string; file:File|null; inputRef:React.RefObject<HTMLInputElement | null>; onFile:(f:File)=>void; onClear:()=>void }) {

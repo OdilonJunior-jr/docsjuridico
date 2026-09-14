@@ -11,9 +11,9 @@ type OcrApiResponse = {
   error?: string
 }
 
-const MAX_IMAGE_SIDE = 2600
-const MAX_UPLOAD_BYTES = 850_000
-const JPEG_QUALITY = 0.9
+const MAX_IMAGE_SIDE = 3200
+const MAX_UPLOAD_BYTES = 930_000
+const JPEG_QUALITY = 0.94
 
 function mergeExtraction(base: ExtractionResult, next: ExtractionResult): ExtractionResult {
   return {
@@ -42,13 +42,13 @@ function canvasToJpeg(canvas: HTMLCanvasElement, quality = JPEG_QUALITY): Promis
 async function canvasToBoundedJpeg(source: HTMLCanvasElement): Promise<Blob> {
   let canvas = source
   for (let round = 0; round < 4; round++) {
-    for (const quality of [0.9, 0.82, 0.74]) {
+    for (const quality of [0.94, 0.89, 0.84, 0.78]) {
       const blob = await canvasToJpeg(canvas, quality)
       if (blob.size <= MAX_UPLOAD_BYTES) return blob
     }
     const reduced = document.createElement('canvas')
-    reduced.width = Math.max(1, Math.round(canvas.width * 0.8))
-    reduced.height = Math.max(1, Math.round(canvas.height * 0.8))
+    reduced.width = Math.max(1, Math.round(canvas.width * 0.86))
+    reduced.height = Math.max(1, Math.round(canvas.height * 0.86))
     const ctx = reduced.getContext('2d')
     if (!ctx) throw new Error('Não foi possível reduzir a imagem para leitura.')
     ctx.imageSmoothingEnabled = true
@@ -58,7 +58,7 @@ async function canvasToBoundedJpeg(source: HTMLCanvasElement): Promise<Blob> {
     ctx.drawImage(canvas, 0, 0, reduced.width, reduced.height)
     canvas = reduced
   }
-  const finalBlob = await canvasToJpeg(canvas, 0.68)
+  const finalBlob = await canvasToJpeg(canvas, 0.74)
   if (finalBlob.size > MAX_UPLOAD_BYTES) throw new Error('A foto é grande demais para o leitor de teste. Tente uma imagem com resolução menor.')
   return finalBlob
 }

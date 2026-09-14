@@ -1,10 +1,14 @@
-DEPLOY VERCEL — V1.8
+DEPLOY V1.11
 
-1) Suba este projeto ao GitHub.
-2) Na Vercel > Project > Settings > Environment Variables, adicione:
-   GOOGLE_CLOUD_VISION_API_KEY = sua chave da Cloud Vision API
-3) Salve para Production, Preview e Development.
-4) Faça Redeploy.
+1. Substitua os arquivos do repositório GitHub pelos desta versão.
+2. Faça commit/push.
+3. A Vercel fará o redeploy automaticamente.
+4. Supabase não precisa ser recriado se já está funcionando.
+5. Para teste do OCR, nenhuma variável nova é obrigatória.
+6. Opcional para uso mais estável: configure OCRSPACE_API_KEY na Vercel.
 
-O projeto NÃO hardcodeia a chave no código e NÃO depende de SUPABASE_SECRET_KEY.
-A rota /api/ocr lê GOOGLE_CLOUD_VISION_API_KEY somente no servidor.
+Ao gerar, o sistema cria automaticamente:
+- Procuração .docx
+- Procuração .pdf
+- Declaração de Hipossuficiência .docx
+- Declaração de Hipossuficiência .pdf

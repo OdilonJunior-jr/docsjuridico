@@ -1,12 +1,45 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { convertDocxToPdf, generateDocx } from '@/lib/document-templates'
+import { generateDocx, generatePdf } from '@/lib/document-templates'
 import type { CompanyData, DocumentKind, PersonData } from '@/lib/types'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
+export const maxDuration = 45
 
 function normalizedDigits(value: string) { return String(value || '').replace(/\D/g, '') }
+function present(value: unknown) { return String(value ?? '').trim() }
+
+function validatePayload(person: PersonData, company: CompanyData) {
+  const requiredPerson: Array<[keyof PersonData, string]> = [
+    ['nome','Nome'], ['nacionalidade','Nacionalidade'], ['estadoCivil','Estado civil'], ['profissao','Profissão'],
+    ['cpf','CPF'], ['rg','RG'], ['logradouro','Logradouro'], ['numero','Número'], ['bairro','Bairro'],
+    ['cidade','Cidade'], ['uf','UF'], ['cep','CEP'],
+  ]
+  const missingPerson = requiredPerson.filter(([key]) => !present(person?.[key])).map(([, label]) => label)
+  const requiredCompany: Array<[keyof CompanyData, string]> = [
+    ['empresaNome','Razão social'], ['cnpj','CNPJ'], ['empresaLogradouro','Logradouro da empresa'],
+    ['empresaNumero','Número da empresa'], ['empresaBairro','Bairro da empresa'], ['empresaCidade','Cidade da empresa'], ['empresaUf','UF da empresa'],
+  ]
+  const missingCompany = requiredCompany.filter(([key]) => !present(company?.[key])).map(([, label]) => label)
+  if (missingPerson.length || missingCompany.length) {
+    throw new Error(`Preencha antes de gerar: ${[...missingPerson, ...missingCompany].join(', ')}.`)
+  }
+  const cpfNorm = normalizedDigits(person.cpf)
+  if (cpfNorm.length !== 11) throw new Error('CPF deve ser conferido antes da geração.')
+  const cnpjNorm = normalizedDigits(company.cnpj)
+  if (cnpjNorm.length !== 14) throw new Error('CNPJ deve ser conferido antes da geração.')
+  return { cpfNorm }
+}
+
+type GeneratedFile = {
+  kind: DocumentKind
+  format: 'docx' | 'pdf'
+  path: string
+  filename: string
+  url?: string
+}
+
 export async function POST(request: Request) {
   try {
     const supabase = await createClient()
@@ -14,18 +47,12 @@ export async function POST(request: Request) {
     if (authError || !authData.user) return NextResponse.json({ error: 'Não autorizado.' }, { status: 401 })
 
     const body = await request.json() as {
-      kind: DocumentKind
       person: PersonData
-      company?: CompanyData
-      output: 'docx' | 'pdf'
+      company: CompanyData
       sourcePaths?: Array<{ kind: 'identity' | 'residence'; path: string; mimeType: string; originalName: string }>
     }
 
-    if (!['procuracao', 'hipossuficiencia'].includes(body.kind)) return NextResponse.json({ error: 'Tipo de documento inválido.' }, { status: 400 })
-    if (!['docx', 'pdf'].includes(body.output)) return NextResponse.json({ error: 'Formato inválido.' }, { status: 400 })
-
-    const cpfNorm = normalizedDigits(body.person?.cpf)
-    if (cpfNorm.length !== 11) return NextResponse.json({ error: 'CPF deve ser conferido antes da geração.' }, { status: 400 })
+    const { cpfNorm } = validatePayload(body.person, body.company)
 
     const clientPayload = {
       owner_id: authData.user.id,
@@ -42,13 +69,13 @@ export async function POST(request: Request) {
       city: body.person.cidade.trim(),
       state: body.person.uf.trim().toUpperCase(),
       cep: body.person.cep.trim(),
-      company_name: body.company?.empresaNome?.trim() || null,
-      cnpj: body.company?.cnpj?.trim() || null,
-      company_address_line: body.company?.empresaLogradouro?.trim() || null,
-      company_address_number: body.company?.empresaNumero?.trim() || null,
-      company_neighborhood: body.company?.empresaBairro?.trim() || null,
-      company_city: body.company?.empresaCidade?.trim() || null,
-      company_state: body.company?.empresaUf?.trim().toUpperCase() || null,
+      company_name: body.company.empresaNome.trim(),
+      cnpj: body.company.cnpj.trim(),
+      company_address_line: body.company.empresaLogradouro.trim(),
+      company_address_number: body.company.empresaNumero.trim(),
+      company_neighborhood: body.company.empresaBairro.trim(),
+      company_city: body.company.empresaCidade.trim(),
+      company_state: body.company.empresaUf.trim().toUpperCase(),
       updated_at: new Date().toISOString(),
     }
 
@@ -72,44 +99,62 @@ export async function POST(request: Request) {
       if (sourceError) throw new Error(sourceError.message)
     }
 
-    const docx = await generateDocx(body.kind, body.person, body.company)
-    const documentId = crypto.randomUUID()
-    const base = `${authData.user.id}/${client.id}/${documentId}`
-    const kindSlug = body.kind === 'procuracao' ? 'procuracao' : 'declaracao_hipossuficiencia'
-    const docxPath = `${base}/${kindSlug}.docx`
-    const pdfPath = `${base}/${kindSlug}.pdf`
+    const [procDocx, procPdf, declDocx, declPdf] = await Promise.all([
+      generateDocx('procuracao', body.person),
+      generatePdf('procuracao', body.person),
+      generateDocx('hipossuficiencia', body.person, body.company),
+      generatePdf('hipossuficiencia', body.person, body.company),
+    ])
 
-    const { error: docxUploadError } = await supabase.storage
-      .from('generated-documents')
-      .upload(docxPath, docx, { contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', upsert: false })
-    if (docxUploadError) throw new Error(docxUploadError.message)
+    const procId = crypto.randomUUID()
+    const declId = crypto.randomUUID()
+    const procBase = `${authData.user.id}/${client.id}/${procId}`
+    const declBase = `${authData.user.id}/${client.id}/${declId}`
 
-    let pdf: Buffer | null = null
-    if (body.output === 'pdf') {
-      pdf = await convertDocxToPdf(docx, `${kindSlug}.docx`)
-      const { error: pdfUploadError } = await supabase.storage
+    const files: Array<GeneratedFile & { bytes: Buffer; contentType: string }> = [
+      { kind: 'procuracao', format: 'docx', path: `${procBase}/procuracao.docx`, filename: 'procuracao.docx', bytes: procDocx, contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+      { kind: 'procuracao', format: 'pdf', path: `${procBase}/procuracao.pdf`, filename: 'procuracao.pdf', bytes: procPdf, contentType: 'application/pdf' },
+      { kind: 'hipossuficiencia', format: 'docx', path: `${declBase}/declaracao_hipossuficiencia.docx`, filename: 'declaracao_hipossuficiencia.docx', bytes: declDocx, contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+      { kind: 'hipossuficiencia', format: 'pdf', path: `${declBase}/declaracao_hipossuficiencia.pdf`, filename: 'declaracao_hipossuficiencia.pdf', bytes: declPdf, contentType: 'application/pdf' },
+    ]
+
+    for (const file of files) {
+      const { error: uploadError } = await supabase.storage
         .from('generated-documents')
-        .upload(pdfPath, pdf, { contentType: 'application/pdf', upsert: false })
-      if (pdfUploadError) throw new Error(pdfUploadError.message)
+        .upload(file.path, file.bytes, { contentType: file.contentType, upsert: false })
+      if (uploadError) throw new Error(`Falha ao armazenar ${file.filename}: ${uploadError.message}`)
     }
 
-    const { error: docInsertError } = await supabase.from('generated_documents').insert({
-      id: documentId,
-      owner_id: authData.user.id,
-      client_id: client.id,
-      kind: body.kind,
-      docx_path: docxPath,
-      pdf_path: pdf ? pdfPath : null,
-    })
+    const { error: docInsertError } = await supabase.from('generated_documents').insert([
+      {
+        id: procId,
+        owner_id: authData.user.id,
+        client_id: client.id,
+        kind: 'procuracao',
+        docx_path: `${procBase}/procuracao.docx`,
+        pdf_path: `${procBase}/procuracao.pdf`,
+      },
+      {
+        id: declId,
+        owner_id: authData.user.id,
+        client_id: client.id,
+        kind: 'hipossuficiencia',
+        docx_path: `${declBase}/declaracao_hipossuficiencia.docx`,
+        pdf_path: `${declBase}/declaracao_hipossuficiencia.pdf`,
+      },
+    ])
     if (docInsertError) throw new Error(docInsertError.message)
 
-    const requestedPath = body.output === 'pdf' ? pdfPath : docxPath
-    const { data: signed, error: signedError } = await supabase.storage.from('generated-documents').createSignedUrl(requestedPath, 120)
-    if (signedError || !signed?.signedUrl) throw new Error('Documento gerado, mas não foi possível criar o link de download.')
+    const responseFiles: GeneratedFile[] = []
+    for (const file of files) {
+      const { data: signed, error: signedError } = await supabase.storage.from('generated-documents').createSignedUrl(file.path, 300)
+      if (signedError || !signed?.signedUrl) throw new Error(`Arquivos gerados, mas não foi possível criar o link de ${file.filename}.`)
+      responseFiles.push({ kind: file.kind, format: file.format, path: file.path, filename: file.filename, url: signed.signedUrl })
+    }
 
-    return NextResponse.json({ ok: true, documentId, url: signed.signedUrl, filename: requestedPath.split('/').pop() })
+    return NextResponse.json({ ok: true, documentIds: { procuracao: procId, hipossuficiencia: declId }, files: responseFiles })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Falha inesperada ao gerar documento.'
+    const message = error instanceof Error ? error.message : 'Falha inesperada ao gerar documentos.'
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }
