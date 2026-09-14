@@ -17,11 +17,11 @@ type SourcePath = { kind: 'identity' | 'residence'; path: string; mimeType: stri
 type GeneratedFile = { kind: DocumentKind; format: 'docx' | 'pdf'; url: string; filename: string }
 const allowedTypes = ['image/jpeg','image/png','image/webp','application/pdf']
 
-const SUSPICIOUS_NAME = /ASSINADOR|SERPRO|CERTIFICAD|VALIDADE|CONFIRMAD|PROGRAMA|ORIENTA[CÇ][AÃ]O|DOCUMENTO\s+ASSINADO|MEDIDA\s+PROVIS[ÓO]RIA|HTTPS?|WWW\.|REP[ÚU]BLICA|MINIST[ÉE]RIO|SECRETARIA|QR[- ]?CODE|CONJUNTO|RESIDENCIAL|JARDIM|PARQUE|LOTEAMENTO|BAIRRO|CNPJ|CLARO|\bLTDA\b|\bS\/?A\b/i
+const SUSPICIOUS_NAME = /ASSINADOR|SERPRO|CERTIFICAD|VALIDADE|CONFIRMAD|PROGRAMA|ORIENTA[CÇ][AÃ]O|DOCUMENTO\s+ASSINADO|MEDIDA\s+PROVIS[ÓO]RIA|HTTPS?|WWW\.|REP[ÚU]BLICA|MINIST[ÉE]RIO|SECRETARIA|QR[- ]?CODE|CONJUNTO|RESIDENCIAL|JARDIM|PARQUE|LOTEAMENTO|BAIRRO|CNPJ|CPF|N[ÚU]MERO|CONTA|CORRENTE|BANCO|AG[EÊ]NCIA|ASSINATURA|AUTORIZA[CÇ][AÃ]O|D[ÉE]BITO|VALOR|VENCIMENTO|REFER[EÊ]NCIA|C[ÓO]DIGO|TELEFONE|COMPET[EÊ]NCIA|PAGAMENTO|NOME\s+DO\s+CLIENTE|\bCLIENTE\b|CLARO|\bLTDA\b|\bS\/?A\b/i
 
 function trustedName(value?: string) {
   const v = String(value || '').replace(/\s+/g, ' ').trim()
-  if (!v || v.length < 5 || v.length > 100 || /\d/.test(v) || SUSPICIOUS_NAME.test(v)) return ''
+  if (!v || v.length < 5 || v.length > 100 || /\d/.test(v) || SUSPICIOUS_NAME.test(v) || /^(?:NOME|TITULAR)(?:\s+(?:DO|DA|DE))?$/i.test(v)) return ''
   const words = v.split(/\s+/).filter(Boolean)
   return words.length >= 2 && words.length <= 9 ? v : ''
 }

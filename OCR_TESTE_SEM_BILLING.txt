@@ -1,12 +1,7 @@
-OCR V1.14 — TESTE SEM GOOGLE BILLING
+OCR V1.16 — TESTE SEM GOOGLE BILLING
 
-- O leitor usa OCR.Space no servidor.
-- Se OCRSPACE_API_KEY não existir, usa a chave pública de demonstração "helloworld" para teste.
-- CNH/RG tenta leitura complementar com dois engines quando possível.
-- PDFs digitais são lidos primeiro pela camada de texto, reconstruindo linhas pela posição para reduzir mistura de colunas.
-- Comprovante usa regras específicas para nome/endereço; nome de empresa, bairro e textos de certificado não podem virar nome da pessoa.
-- ViaCEP só corrige grafia quando cidade/UF são compatíveis com o documento.
-- Nenhum campo ausente é inventado.
+O sistema usa OCR.Space para o OCR de teste.
+Se OCRSPACE_API_KEY estiver configurada na Vercel, usa essa chave.
+Sem variável, usa a chave pública de demonstração helloworld, sujeita a limites do fornecedor.
 
-Quando o fluxo estiver validado, configure uma chave própria do OCR.Space na Vercel:
-OCRSPACE_API_KEY=...
+A V1.16 adiciona travas para nunca transformar rótulos de formulário em nome de pessoa.

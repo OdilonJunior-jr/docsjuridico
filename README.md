@@ -1,4 +1,4 @@
-# Documentos Jurídicos — V1.15
+# Documentos Jurídicos — V1.16
 
 Sistema web para conferência de dados de cliente e geração de documentos jurídicos com Supabase, Next.js e armazenamento privado.
 
@@ -12,7 +12,7 @@ Sistema web para conferência de dados de cliente e geração de documentos jur�
 
 O texto jurídico e os dados fixos da advogada permanecem nos modelos originais. Dados ausentes não são inventados.
 
-## Revisão V1.15
+## Revisão V1.16
 
 - Pessoa jurídica passou a ser opcional e os campos empresariais só aparecem quando a opção é marcada.
 - A declaração original é empresarial; por isso ela só é gerada quando os dados de pessoa jurídica estiverem habilitados e completos.
@@ -34,7 +34,7 @@ O texto jurídico e os dados fixos da advogada permanecem nos modelos originais.
 
 ## Banco existente
 
-A V1.15 não exige nova migration. As tabelas e buckets já criados pela `001_initial.sql` continuam compatíveis.
+A V1.16 não exige nova migration. As tabelas e buckets já criados pela `001_initial.sql` continuam compatíveis.
 
 ## OCR de teste
 

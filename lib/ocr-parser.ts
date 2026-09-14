@@ -6,7 +6,7 @@ const STREET_WORDS = /\b(RUA|R\.?|AV(?:ENIDA)?\.?|ALAMEDA|AL\.?|TRAVESSA|TV\.?|R
 const BAD_NAME = /REP[ÚU]BLICA|FEDERATIVA|BRASIL|CARTEIRA|NACIONAL|HABILITA[CÇ][AÃ]O|DRIVER|LICENSE|VALIDADE|EMISS[AÃ]O|IDENTIDADE|DOCUMENTO|ASSINATURA|FILIA[CÇ][AÃ]O|DETRAN|SECRETARIA|MINIST[EÉ]RIO|TRANSPORTES|CPF|NASCIMENTO|REGISTRO|CATEGORIA|PERMISS[AÃ]O|ENDERE[CÇ]O|UNIDADE|CONSUMIDORA|FATURA|ENERGIA|[ÁA]GUA|TELEFONE|CLIENTE|VENCIMENTO|INSTALA[CÇ][AÃ]O|IDENTIFICA[CÇ][AÃ]O|D[ÉE]BITO|CERTIFICADO|DIGITAL|CONFORMIDADE|CONFIRMAD[AO]|PROGRAMA|ASSINADOR|SERPRO|ORIENTA[CÇ][OÕ]ES|VALIDA[CÇ][AÃ]O|DISPON[IÍ]VEIS|ACESS[EO]|SITE|HTTPS?/i
 const LABEL_ONLY = /^(?:\d+[A-Z]?\s*)?(?:NOME(?:\s+E\s+SOBRENOME)?|NAME(?:\s+AND\s+SURNAME)?|CPF(?:\s*\/\s*DATA\s+NASCIMENTO)?|DATA\s+(?:DE\s+)?NASCIMENTO|NASCIMENTO|DOC\.?\s*IDENTIDADE(?:\s*\/.*)?|DOCUMENTO\s+DE\s+IDENTIDADE|IDENTIDADE|RG|ENDERE[CÇ]O(?:\s+DA\s+UNIDADE\s+CONSUMIDORA)?|LOGRADOURO|BAIRRO|MUNIC[IÍ]PIO|CIDADE|CEP|UF|FILIA[CÇ][AÃ]O|ASSINATURA|VALIDADE|DATA\s+EMISS[AÃ]O|N[º°O]?\s*REGISTRO|REGISTRO|HABILITA[CÇ][AÃ]O|CATEGORIA|LOCAL\s+E\s+UF\s+DE\s+NASCIMENTO)\s*[:\-\/]?\s*$/i
 const ADDRESS_NOISE = /CPF|CNPJ|CLIENTE|CONTA|INSTALA[CÇ][AÃ]O|REFER[EÊ]NCIA|VENCIMENTO|TOTAL|ENERGIA|[ÁA]GUA|TELEFONE|FATURA|ENDERE[CÇ]O|UNIDADE|CONSUMIDORA|MEDIDOR|LEITURA|EMISS[AÃ]O|PAGAMENTO|DOCUMENTO|PROTOCOLO/i
-const PERSON_NAME_NOISE = /\b(?:CONJUNTO|RESIDENCIAL|JARDIM|PARQUE|LOTEAMENTO|BAIRRO|CENTRO|QUADRA|LOTE|EDIF[IÍ]CIO|CONDOM[IÍ]NIO|S(?:\/|\s)?A|LTDA|EIRELI|MEI|CNPJ)\b|CLARO|CEMIG|COPASA|ENERGISA|VIVO|TIM|OI\b/i
+const PERSON_NAME_NOISE = /\b(?:CONJUNTO|RESIDENCIAL|JARDIM|PARQUE|LOTEAMENTO|BAIRRO|CENTRO|QUADRA|LOTE|EDIF[IÍ]CIO|CONDOM[IÍ]NIO|S(?:\/|\s)?A|LTDA|EIRELI|MEI|CNPJ|N[ÚU]MERO|CONTA|CORRENTE|BANCO|AG[EÊ]NCIA|ASSINATURA|AUTORIZA[CÇ][AÃ]O|D[ÉE]BITO|VALOR|VENCIMENTO|DATA|M[ÊE]S|REFER[EÊ]NCIA|C[ÓO]DIGO|TELEFONE|COMPET[EÊ]NCIA|PAGAMENTO|PLANO|SERVI[CÇ]O|DESCRI[CÇ][AÃ]O|QUANTIDADE|TARIFA|SUBTOTAL|TOTAL|CLIENTE)\b|CLARO|CEMIG|COPASA|ENERGISA|VIVO|TIM|OI\b/i
 
 function clean(value: string) {
   return String(value || '')
@@ -50,7 +50,13 @@ function linesFrom(rawText: string) {
 }
 
 function cleanPersonName(value: string) {
-  const v=clean(value)
+  let v=clean(value)
+  // Colunas de faturas podem chegar coladas ao nome. Corta assim que começa um rótulo
+  // administrativo; isso evita "JOAO ... Período de uso" e equivalentes.
+  const administrative = /\b(?:CPF|CNPJ|PER[IÍ]ODO(?:\s+DE\s+USO)?|VENCIMENTO|TELEFONE|REFER[EÊ]NCIA|COMPET[EÊ]NCIA|C[ÓO]DIGO|VALOR|DATA|BANCO|AG[EÊ]NCIA|ASSINATURA|N[ÚU]MERO(?:\s+DA)?\s+CONTA|CONTA\s+CORRENTE|D[ÉE]BITO|CLIENTE|PAGAMENTO|FATURA|PLANO|SERVI[CÇ]O)\b/i
+  const marker=v.search(administrative)
+  if (marker === 0) return ''
+  if (marker > 0) v=v.slice(0,marker)
   // Interrompe em QR/mojibake ou símbolos que não pertencem a nomes civis.
   const leading=v.match(/^[A-Za-zÀ-ÿ'’´` -]+/)
   return clean(leading?.[0] || '')
@@ -58,7 +64,7 @@ function cleanPersonName(value: string) {
 
 function looksLikeName(value: string) {
   const v = cleanPersonName(value)
-  if (v.length < 5 || v.length > 100 || /\d/.test(v) || STREET_WORDS.test(v) || BAD_NAME.test(v) || LABEL_ONLY.test(v)) return false
+  if (v.length < 5 || v.length > 100 || /\d/.test(v) || STREET_WORDS.test(v) || BAD_NAME.test(v) || LABEL_ONLY.test(v) || /^(?:NOME|TITULAR)(?:\s+(?:DO|DA|DE))?$/i.test(v)) return false
   const words = v.split(/\s+/).filter(Boolean)
   if (words.length < 2 || words.length > 9) return false
   return v.replace(/[^A-Za-zÀ-ÿ]/g, '').length >= 5
@@ -218,42 +224,67 @@ function looksLikePersonName(value: string) {
 }
 
 function findResidenceName(lines: string[]) {
-  const scored: Array<{value:string; score:number}> = []
-  const add = (value:string, score:number) => {
+  const scored: Array<{value:string; score:number; index:number}> = []
+  const add = (value:string, score:number, index:number) => {
     const cleanValue=cleanPersonName(value)
     if (!looksLikePersonName(cleanValue)) return
-    scored.push({value:cleanValue, score:score + nameScore(cleanValue)})
+    // Rótulos administrativos nunca podem ser promovidos a nome de pessoa.
+    if (/^(?:N[ÚU]MERO|CONTA|BANCO|AG[EÊ]NCIA|ASSINATURA|AUTORIZA[CÇ][AÃ]O|D[ÉE]BITO|VALOR|VENCIMENTO|DATA|M[ÊE]S|REFER[EÊ]NCIA|C[ÓO]DIGO|TELEFONE|COMPET[EÊ]NCIA|PAGAMENTO|CLIENTE)\b/i.test(normalize(cleanValue))) return
+    scored.push({value:cleanValue, score:score + nameScore(cleanValue), index})
   }
 
-  // Faturas/notas costumam repetir o titular imediatamente ao lado ou acima do CPF.
-  for (let i=0;i<lines.length;i++) {
-    if (!/\bCPF\b/i.test(lines[i])) continue
-    for (let distance=1;distance<=5;distance++) {
-      if (i-distance>=0) add(lines[i-distance], 100-distance*8)
-      if (i+distance<lines.length) add(lines[i+distance], 70-distance*8)
+  const text = lines.join('\n')
+  const cpf = firstCpf(text, lines)
+  const cpfDigits = onlyDigits(cpf)
+
+  // 1) Maior confiança: o CPF real reconhecido no documento. Procura o titular somente
+  //    ao redor da ocorrência desse CPF, não ao redor de qualquer rótulo "CPF/CNPJ".
+  if (cpfDigits) {
+    for (let i=0;i<lines.length;i++) {
+      const digits = onlyDigits(lines[i])
+      if (!digits.includes(cpfDigits)) continue
+
+      // Às vezes nome e CPF vêm na mesma linha.
+      const withoutCpf = clean(lines[i]
+        .replace(/CPF\s*[:\-]?\s*/i,' ')
+        .replace(/\d{3}[.\s-]?\d{3}[.\s-]?\d{3}[-.\s]?\d{2}/g,' '))
+      add(withoutCpf, 180, i)
+
+      for (let distance=1;distance<=4;distance++) {
+        if (i-distance>=0) add(lines[i-distance], 170-distance*10, i-distance)
+        if (i+distance<lines.length) add(lines[i+distance], 115-distance*10, i+distance)
+      }
     }
   }
 
-  // No cabeçalho do comprovante, o nome costuma vir logo antes do primeiro logradouro.
-  const topLimit=Math.min(lines.length,40)
+  // 2) Rótulos explícitos. "NOME DO CLIENTE" sozinho é rótulo; só o valor ao lado/abaixo conta.
+  for (let i=0;i<lines.length;i++) {
+    const normalized = normalize(lines[i])
+    if (!/^(?:CLIENTE|NOME\s+DO\s+CLIENTE|NOME\s+DO\s+TITULAR|TITULAR)\b/.test(normalized)) continue
+    const same=clean(lines[i].replace(/^(?:CLIENTE|NOME\s+DO\s+CLIENTE|NOME\s+DO\s+TITULAR|TITULAR)\s*[:\-]?\s*/i,''))
+    add(same,160,i)
+    const next=nextUseful(lines,i,looksLikePersonName,3)
+    if(next) add(next,150,lines.indexOf(next,i+1))
+  }
+
+  // 3) Cabeçalho de comprovante: o titular costuma ficar imediatamente antes do primeiro
+  //    logradouro. Limitamos a busca ao início do documento para não cair em formulários anexos.
+  const topLimit=Math.min(lines.length,80)
   for (let i=0;i<topLimit;i++) {
     if (!STREET_WORDS.test(lines[i])) continue
-    for (let distance=1;distance<=5;distance++) if (i-distance>=0) add(lines[i-distance],90-distance*7)
+    for (let distance=1;distance<=5;distance++) if (i-distance>=0) add(lines[i-distance],145-distance*9,i-distance)
     break
   }
 
-  // Rótulos explícitos CLIENTE/NOME DO CLIENTE têm alta confiança.
-  for (let i=0;i<lines.length;i++) {
-    if (!/^(?:CLIENTE|NOME\s+DO\s+CLIENTE)\s*[:\-]?/i.test(normalize(lines[i]))) continue
-    const same=clean(lines[i].replace(/^(?:CLIENTE|NOME\s+DO\s+CLIENTE)\s*[:\-]?\s*/i,''))
-    add(same,120)
-    const next=nextUseful(lines,i,looksLikePersonName,3)
-    if(next) add(next,115)
+  // 4) Último fallback conservador: somente no cabeçalho. Se nada confiável existir,
+  //    deixa vazio em vez de inventar uma frase qualquer de páginas posteriores.
+  if (!scored.length) {
+    for (let i=0;i<Math.min(lines.length,60);i++) add(lines[i],40,i)
   }
 
-  if (scored.length) return scored.sort((a,b)=>b.score-a.score)[0].value
-  const generic=findGenericName(lines)
-  return looksLikePersonName(generic) ? generic : ''
+  if (!scored.length) return ''
+  // Em empate, favorece a ocorrência mais cedo no documento.
+  return scored.sort((a,b)=> (b.score-a.score) || (a.index-b.index))[0].value
 }
 
 function findIdentityName(lines: string[]) {
