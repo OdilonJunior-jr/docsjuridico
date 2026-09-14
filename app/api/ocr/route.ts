@@ -45,13 +45,13 @@ async function runOcr(file: File, apiKey: string, engine: 2 | 3, kind: 'identity
     throw new Error(normalizeProviderError(payload))
   }
   const text = (payload.ParsedResults || []).map(item => item.ParsedText || '').join('\n').trim()
-  return { text, parsed: parseBrazilianDocumentText(text) }
+  return { text, parsed: parseBrazilianDocumentText(text, kind) }
 }
 
 function needsFallback(kind: 'identity' | 'residence', parsed: ExtractionResult) {
   return kind === 'identity'
     ? !parsed.nome || !parsed.cpf || !parsed.rg
-    : !parsed.cep || !parsed.logradouro || !parsed.numero || !parsed.bairro || !parsed.cidade || !parsed.uf
+    : !parsed.nome || !parsed.cep || !parsed.logradouro || !parsed.numero || !parsed.bairro || !parsed.cidade || !parsed.uf
 }
 
 async function enrichAddressByCep(parsed: ExtractionResult): Promise<ExtractionResult> {
@@ -62,13 +62,20 @@ async function enrichAddressByCep(parsed: ExtractionResult): Promise<ExtractionR
     if (!response.ok) return parsed
     const data = await response.json() as { erro?: boolean; logradouro?: string; bairro?: string; localidade?: string; uf?: string }
     if (data.erro) return parsed
+    const parsedUf = String(parsed.uf || '').trim().toUpperCase()
+    const apiUf = String(data.uf || '').trim().toUpperCase()
+    const normalizePlace = (input: string) => input.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+    const parsedCity = normalizePlace(String(parsed.cidade || ''))
+    const apiCity = normalizePlace(String(data.localidade || ''))
+    if (parsedUf && apiUf && parsedUf !== apiUf) return parsed
+    if (parsedCity && apiCity && parsedCity !== apiCity && !parsedCity.includes(apiCity) && !apiCity.includes(parsedCity)) return parsed
     return {
       ...parsed,
-      // CEP confirmado é mais confiável para grafia de logradouro/bairro/cidade/UF. Número continua vindo do documento.
+      // CEP confirmado corrige grafia somente quando cidade/UF também são compatíveis.
       logradouro: data.logradouro?.trim() || parsed.logradouro || '',
       bairro: data.bairro?.trim() || parsed.bairro || '',
       cidade: data.localidade?.trim() || parsed.cidade || '',
-      uf: data.uf?.trim().toUpperCase() || parsed.uf || '',
+      uf: apiUf || parsed.uf || '',
     }
   } catch { return parsed }
 }
@@ -92,13 +99,12 @@ export async function POST(request: Request) {
     // Faz duas leituras sempre que possível: Engine 3 prioriza precisão e Engine 2 serve como
     // conferência independente. Isso ajuda a recuperar letras que um único OCR omitiu no nome/endereço.
     let primary: ProviderResult
-    let primaryEngine: 2 | 3 = 3
     try { primary = await runOcr(file, apiKey, 3, kind) }
-    catch { primaryEngine = 2; primary = await runOcr(file, apiKey, 2, kind) }
+    catch { primary = await runOcr(file, apiKey, 2, kind) }
 
     let parsed = primary.parsed
     let text = primary.text
-    if (needsFallback(kind, parsed)) {
+    if (kind === 'identity' || needsFallback(kind, parsed)) {
       try {
         const secondary = await runOcr(file, apiKey, 2, kind)
         parsed = mergeExtractionCandidates(parsed, secondary.parsed)

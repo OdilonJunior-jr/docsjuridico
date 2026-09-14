@@ -96,11 +96,36 @@ async function pdfToPrepared(file: File, kind: DocumentSourceKind): Promise<PdfP
   for (let index = 1; index <= textPages; index++) {
     const page = await pdf.getPage(index)
     const content = await page.getTextContent()
-    let pageText = ''
-    for (const item of content.items) {
-      if (!('str' in item)) continue
-      pageText += `${item.str}${'hasEOL' in item && item.hasEOL ? '\n' : ' '}`
+    const positioned = content.items.flatMap((entry) => {
+      if (!('str' in entry) || !entry.str.trim()) return []
+      const item = entry as { str:string; transform:number[]; width?:number; height?:number; hasEOL?:boolean }
+      return [{ str:item.str.trim(), x:item.transform?.[4] || 0, y:item.transform?.[5] || 0, width:item.width || 0, height:item.height || Math.abs(item.transform?.[3] || 10), hasEOL:Boolean(item.hasEOL) }]
+    })
+    const rows: Array<{y:number; items:typeof positioned}> = []
+    for (const item of positioned) {
+      const tolerance=Math.max(2.2,Math.min(5,item.height*0.35))
+      let row=rows.find(candidate=>Math.abs(candidate.y-item.y)<=tolerance)
+      if(!row){ row={y:item.y,items:[]}; rows.push(row) }
+      row.items.push(item)
     }
+    const pageLines:string[]=[]
+    for(const row of rows.sort((a,b)=>b.y-a.y)){
+      const items=row.items.sort((a,b)=>a.x-b.x)
+      let segment:string[]=[]
+      let previousEnd=Number.NEGATIVE_INFINITY
+      const flush=()=>{ const line=segment.join(' ').replace(/\s+/g,' ').trim(); if(line) pageLines.push(line); segment=[] }
+      for(const item of items){
+        const gap=item.x-previousEnd
+        // PDFs de fatura têm colunas lado a lado. Um vão grande representa outro bloco,
+        // não continuação do endereço/nome à esquerda.
+        if(segment.length && gap>38) flush()
+        segment.push(item.str)
+        previousEnd=item.x+Math.max(item.width,1)
+        if(item.hasEOL) flush()
+      }
+      flush()
+    }
+    const pageText=pageLines.join('\n')
     if (pageText.trim()) textParts.push(pageText.trim())
   }
 
@@ -164,12 +189,21 @@ async function enrichAddressByCep(data: ExtractionResult): Promise<ExtractionRes
     if (!response.ok) return data
     const value = await response.json() as { erro?: boolean; logradouro?: string; bairro?: string; localidade?: string; uf?: string }
     if (value.erro) return data
+    const parsedUf = String(data.uf || '').trim().toUpperCase()
+    const apiUf = String(value.uf || '').trim().toUpperCase()
+    const normalizePlace = (input: string) => input.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+    const parsedCity = normalizePlace(String(data.cidade || ''))
+    const apiCity = normalizePlace(String(value.localidade || ''))
+    // Um CEP lido errado pode apontar para outro município. Nessa situação, não sobrescrevemos
+    // os dados visíveis no documento. O ViaCEP só corrige grafia quando UF/cidade são compatíveis.
+    if (parsedUf && apiUf && parsedUf !== apiUf) return data
+    if (parsedCity && apiCity && parsedCity !== apiCity && !parsedCity.includes(apiCity) && !apiCity.includes(parsedCity)) return data
     return {
       ...data,
       logradouro: value.logradouro?.trim() || data.logradouro || '',
       bairro: value.bairro?.trim() || data.bairro || '',
       cidade: value.localidade?.trim() || data.cidade || '',
-      uf: value.uf?.trim().toUpperCase() || data.uf || '',
+      uf: apiUf || data.uf || '',
     }
   } catch { return data }
 }
@@ -187,7 +221,7 @@ export async function extractDataFromFile(
     const prepared = await pdfToPrepared(file, kind)
     images = prepared.images
     if (prepared.text.trim()) {
-      const parsedText = parseBrazilianDocumentText(prepared.text)
+      const parsedText = parseBrazilianDocumentText(prepared.text, kind)
       if (kind === 'identity') {
         // Não transforma o rodapé do certificado digital em dado pessoal.
         direct = identityTextLayerIsReliable(prepared.text)

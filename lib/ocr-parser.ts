@@ -1,9 +1,12 @@
 import type { ExtractionResult } from '@/lib/types'
 
+export type DocumentSourceKind = 'identity' | 'residence' | 'generic'
+
 const STREET_WORDS = /\b(RUA|R\.?|AV(?:ENIDA)?\.?|ALAMEDA|AL\.?|TRAVESSA|TV\.?|RODOVIA|ROD\.?|ESTRADA|EST\.?|PRA[CÇ]A|PCA\.?|LARGO|VIELA|VIA|FAZENDA|S[IÍ]TIO|CH[AÁ]CARA)\b/i
 const BAD_NAME = /REP[ÚU]BLICA|FEDERATIVA|BRASIL|CARTEIRA|NACIONAL|HABILITA[CÇ][AÃ]O|DRIVER|LICENSE|VALIDADE|EMISS[AÃ]O|IDENTIDADE|DOCUMENTO|ASSINATURA|FILIA[CÇ][AÃ]O|DETRAN|SECRETARIA|MINIST[EÉ]RIO|TRANSPORTES|CPF|NASCIMENTO|REGISTRO|CATEGORIA|PERMISS[AÃ]O|ENDERE[CÇ]O|UNIDADE|CONSUMIDORA|FATURA|ENERGIA|[ÁA]GUA|TELEFONE|CLIENTE|VENCIMENTO|INSTALA[CÇ][AÃ]O|IDENTIFICA[CÇ][AÃ]O|D[ÉE]BITO|CERTIFICADO|DIGITAL|CONFORMIDADE|CONFIRMAD[AO]|PROGRAMA|ASSINADOR|SERPRO|ORIENTA[CÇ][OÕ]ES|VALIDA[CÇ][AÃ]O|DISPON[IÍ]VEIS|ACESS[EO]|SITE|HTTPS?/i
 const LABEL_ONLY = /^(?:\d+[A-Z]?\s*)?(?:NOME(?:\s+E\s+SOBRENOME)?|NAME(?:\s+AND\s+SURNAME)?|CPF(?:\s*\/\s*DATA\s+NASCIMENTO)?|DATA\s+(?:DE\s+)?NASCIMENTO|NASCIMENTO|DOC\.?\s*IDENTIDADE(?:\s*\/.*)?|DOCUMENTO\s+DE\s+IDENTIDADE|IDENTIDADE|RG|ENDERE[CÇ]O(?:\s+DA\s+UNIDADE\s+CONSUMIDORA)?|LOGRADOURO|BAIRRO|MUNIC[IÍ]PIO|CIDADE|CEP|UF|FILIA[CÇ][AÃ]O|ASSINATURA|VALIDADE|DATA\s+EMISS[AÃ]O|N[º°O]?\s*REGISTRO|REGISTRO|HABILITA[CÇ][AÃ]O|CATEGORIA|LOCAL\s+E\s+UF\s+DE\s+NASCIMENTO)\s*[:\-\/]?\s*$/i
 const ADDRESS_NOISE = /CPF|CNPJ|CLIENTE|CONTA|INSTALA[CÇ][AÃ]O|REFER[EÊ]NCIA|VENCIMENTO|TOTAL|ENERGIA|[ÁA]GUA|TELEFONE|FATURA|ENDERE[CÇ]O|UNIDADE|CONSUMIDORA|MEDIDOR|LEITURA|EMISS[AÃ]O|PAGAMENTO|DOCUMENTO|PROTOCOLO/i
+const PERSON_NAME_NOISE = /\b(?:CONJUNTO|RESIDENCIAL|JARDIM|PARQUE|LOTEAMENTO|BAIRRO|CENTRO|QUADRA|LOTE|EDIF[IÍ]CIO|CONDOM[IÍ]NIO|S(?:\/|\s)?A|LTDA|EIRELI|MEI|CNPJ)\b|CLARO|CEMIG|COPASA|ENERGISA|VIVO|TIM|OI\b/i
 
 function clean(value: string) {
   return String(value || '')
@@ -46,8 +49,15 @@ function linesFrom(rawText: string) {
   return rawText.replace(/\r/g, '\n').split(/\n+/).map(clean).filter(Boolean)
 }
 
+function cleanPersonName(value: string) {
+  const v=clean(value)
+  // Interrompe em QR/mojibake ou símbolos que não pertencem a nomes civis.
+  const leading=v.match(/^[A-Za-zÀ-ÿ'’´` -]+/)
+  return clean(leading?.[0] || '')
+}
+
 function looksLikeName(value: string) {
-  const v = clean(value)
+  const v = cleanPersonName(value)
   if (v.length < 5 || v.length > 100 || /\d/.test(v) || STREET_WORDS.test(v) || BAD_NAME.test(v) || LABEL_ONLY.test(v)) return false
   const words = v.split(/\s+/).filter(Boolean)
   if (words.length < 2 || words.length > 9) return false
@@ -56,7 +66,7 @@ function looksLikeName(value: string) {
 
 function nameScore(value: string) {
   if (!looksLikeName(value)) return -1000
-  const v = clean(value)
+  const v = cleanPersonName(value)
   const words = v.split(/\s+/).filter(Boolean)
   let score = v.replace(/[^A-Za-zÀ-ÿ]/g, '').length + words.length * 6
   if (words.length >= 3) score += 14
@@ -118,7 +128,8 @@ function mrzName(lines: string[]) {
   for (const line of lines) {
     const compact = line.toUpperCase().replace(/\s+/g, '')
     if (!compact.includes('<<') || !/[A-Z]{2,}<+[A-Z]{2,}/.test(compact)) continue
-    const candidate = compact.replace(/^[A-Z0-9<]{0,3}(?=[A-Z]{2,}<<)/, '').replace(/<+/g, ' ').replace(/[^A-Z ]/g, ' ').replace(/\s+/g, ' ').trim()
+    const namePayload = /^P<[A-Z]{3}/.test(compact) ? compact.slice(5) : compact
+    const candidate = namePayload.replace(/<+/g, ' ').replace(/[^A-Z ]/g, ' ').replace(/\s+/g, ' ').trim()
     if (looksLikeName(candidate)) return candidate
   }
   return ''
@@ -134,7 +145,7 @@ function findNationality(lines: string[]) {
   return ''
 }
 
-function findName(lines: string[]) {
+function findGenericName(lines: string[]) {
   const mrz = mrzName(lines)
   if (mrz) return mrz
   const labels = [/NOME\s+E\s+SOBRENOME/i, /NOME\s+DO\s+TITULAR/i, /NOME\s+DO\s+CLIENTE/i, /^CLIENTE$/i, /\bNOME\b/i, /NAME\s+AND\s+SURNAME/i]
@@ -170,6 +181,65 @@ function findName(lines: string[]) {
   }
 
   return candidates.map(clean).sort((a, b) => nameScore(b) - nameScore(a))[0] || ''
+}
+
+
+function looksLikePersonName(value: string) {
+  return looksLikeName(value) && !PERSON_NAME_NOISE.test(normalize(value))
+}
+
+function findResidenceName(lines: string[]) {
+  const scored: Array<{value:string; score:number}> = []
+  const add = (value:string, score:number) => {
+    const cleanValue=cleanPersonName(value)
+    if (!looksLikePersonName(cleanValue)) return
+    scored.push({value:cleanValue, score:score + nameScore(cleanValue)})
+  }
+
+  // Faturas/notas costumam repetir o titular imediatamente ao lado ou acima do CPF.
+  for (let i=0;i<lines.length;i++) {
+    if (!/\bCPF\b/i.test(lines[i])) continue
+    for (let distance=1;distance<=5;distance++) {
+      if (i-distance>=0) add(lines[i-distance], 100-distance*8)
+      if (i+distance<lines.length) add(lines[i+distance], 70-distance*8)
+    }
+  }
+
+  // No cabeçalho do comprovante, o nome costuma vir logo antes do primeiro logradouro.
+  const topLimit=Math.min(lines.length,40)
+  for (let i=0;i<topLimit;i++) {
+    if (!STREET_WORDS.test(lines[i])) continue
+    for (let distance=1;distance<=5;distance++) if (i-distance>=0) add(lines[i-distance],90-distance*7)
+    break
+  }
+
+  // Rótulos explícitos CLIENTE/NOME DO CLIENTE têm alta confiança.
+  for (let i=0;i<lines.length;i++) {
+    if (!/^(?:CLIENTE|NOME\s+DO\s+CLIENTE)\s*[:\-]?/i.test(normalize(lines[i]))) continue
+    const same=clean(lines[i].replace(/^(?:CLIENTE|NOME\s+DO\s+CLIENTE)\s*[:\-]?\s*/i,''))
+    add(same,120)
+    const next=nextUseful(lines,i,looksLikePersonName,3)
+    if(next) add(next,115)
+  }
+
+  if (scored.length) return scored.sort((a,b)=>b.score-a.score)[0].value
+  const generic=findGenericName(lines)
+  return looksLikePersonName(generic) ? generic : ''
+}
+
+function findIdentityName(lines: string[]) {
+  const mrz=mrzName(lines)
+  if (mrz) return mrz
+  const labels=[/NOME\s+E\s+SOBRENOME/i,/NAME\s+AND\s+SURNAME/i,/^NOME$/i]
+  for(let i=0;i<lines.length;i++) {
+    const same=valueAfterLabel(lines[i],labels)
+    if(looksLikePersonName(same)) return same
+    if(labels.some(label=>label.test(normalize(lines[i])))) {
+      const next=nextUseful(lines,i,looksLikePersonName,4)
+      if(next) return next
+    }
+  }
+  return findGenericName(lines)
 }
 
 function findIdentity(lines: string[], text: string) {
@@ -250,7 +320,14 @@ function parseAddress(lines: string[], text: string) {
     if (m && clean(m[1]).length >= 4) {
       logradouro = clean(m[1]); numero = clean(m[2])
       const tail = clean(m[3] || '')
-      if (!bairro && tail && !ADDRESS_NOISE.test(tail) && !cityUfFromLine(tail) && !/\bCEP\b/i.test(tail)) bairro = tail
+      if (tail) {
+        const complementMatch = tail.match(/^((?:CASA|AP(?:ARTAMENTO|TO)?|BLOCO|BL|SALA|LOTE|LT|QUADRA|QD|FUNDOS)\s+[A-Z0-9.-]+)\s+(.*)$/i)
+        if (complementMatch) {
+          numero = `${numero}, ${clean(complementMatch[1])}`
+          const rest = clean(complementMatch[2])
+          if (!bairro && rest && !ADDRESS_NOISE.test(rest) && !cityUfFromLine(rest)) bairro = rest
+        } else if (!bairro && !ADDRESS_NOISE.test(tail) && !cityUfFromLine(tail) && !/\bCEP\b/i.test(tail)) bairro = tail
+      }
     }
   }
 
@@ -281,8 +358,8 @@ function parseAddress(lines: string[], text: string) {
 }
 
 function chooseName(a?: string, b?: string) {
-  const av = looksLikeName(clean(a || '')) ? clean(a || '') : ''
-  const bv = looksLikeName(clean(b || '')) ? clean(b || '') : ''
+  const av = looksLikeName(a || '') ? cleanPersonName(a || '') : ''
+  const bv = looksLikeName(b || '') ? cleanPersonName(b || '') : ''
   if (!av) return bv
   if (!bv) return av
   const an = normalize(av), bn = normalize(bv)
@@ -329,14 +406,15 @@ export function mergeExtractionCandidates(primary: ExtractionResult, secondary: 
   }
 }
 
-export function parseBrazilianDocumentText(rawText: string): ExtractionResult {
+export function parseBrazilianDocumentText(rawText: string, kind: DocumentSourceKind = 'generic'): ExtractionResult {
   const text = String(rawText || '').replace(/\r/g, '\n').replace(/\n{3,}/g, '\n\n').trim()
   const lines = linesFrom(text)
+  const nome = kind === 'residence' ? findResidenceName(lines) : kind === 'identity' ? findIdentityName(lines) : findGenericName(lines)
   return {
-    nome: findName(lines),
-    nacionalidade: findNationality(lines),
+    nome,
+    nacionalidade: kind === 'residence' ? '' : findNationality(lines),
     cpf: firstCpf(text, lines),
-    rg: findIdentity(lines, text),
+    rg: kind === 'residence' ? '' : findIdentity(lines, text),
     ...parseAddress(lines, text),
     rawText: text,
   }

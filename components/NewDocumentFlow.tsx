@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
-import { Check, ChevronLeft, FileCheck2, FileText, LoaderCircle, LockKeyhole, SearchCheck, Upload, X } from 'lucide-react'
+import { Building2, Check, ChevronLeft, FileCheck2, FileText, LoaderCircle, LockKeyhole, SearchCheck, Upload, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { extractDataFromFile } from '@/lib/ocr'
 import type { CompanyData, DocumentKind, PersonData } from '@/lib/types'
@@ -17,7 +17,7 @@ type SourcePath = { kind: 'identity' | 'residence'; path: string; mimeType: stri
 type GeneratedFile = { kind: DocumentKind; format: 'docx' | 'pdf'; url: string; filename: string }
 const allowedTypes = ['image/jpeg','image/png','image/webp','application/pdf']
 
-const SUSPICIOUS_NAME = /ASSINADOR|SERPRO|CERTIFICAD|VALIDADE|CONFIRMAD|PROGRAMA|ORIENTA[CÇ][AÃ]O|DOCUMENTO\s+ASSINADO|MEDIDA\s+PROVIS[ÓO]RIA|HTTPS?|WWW\.|REP[ÚU]BLICA|MINIST[ÉE]RIO|SECRETARIA|QR[- ]?CODE/i
+const SUSPICIOUS_NAME = /ASSINADOR|SERPRO|CERTIFICAD|VALIDADE|CONFIRMAD|PROGRAMA|ORIENTA[CÇ][AÃ]O|DOCUMENTO\s+ASSINADO|MEDIDA\s+PROVIS[ÓO]RIA|HTTPS?|WWW\.|REP[ÚU]BLICA|MINIST[ÉE]RIO|SECRETARIA|QR[- ]?CODE|CONJUNTO|RESIDENCIAL|JARDIM|PARQUE|LOTEAMENTO|BAIRRO|CNPJ|CLARO|\bLTDA\b|\bS\/?A\b/i
 
 function trustedName(value?: string) {
   const v = String(value || '').replace(/\s+/g, ' ').trim()
@@ -44,7 +44,8 @@ function mergePerson(identity: Partial<PersonData>, residence: Partial<PersonDat
     nacionalidade: identity.nacionalidade || '',
     estadoCivil: identity.estadoCivil || '',
     profissao: identity.profissao || '',
-    cpf: identity.cpf || residence.cpf || '',
+    // Quando o comprovante traz CPF validado, ele confirma o titular e evita manter um CPF mal lido na CNH.
+    cpf: residence.cpf || identity.cpf || '',
     rg: identity.rg || '',
     logradouro: residence.logradouro || identity.logradouro || '',
     numero: residence.numero || identity.numero || '',
@@ -77,6 +78,7 @@ export function NewDocumentFlow() {
   const [residenceFile, setResidenceFile] = useState<File | null>(null)
   const [person, setPerson] = useState<PersonData>(emptyPerson)
   const [company, setCompany] = useState<CompanyData>(emptyCompany)
+  const [includeCompany, setIncludeCompany] = useState(false)
   const [sourcePaths, setSourcePaths] = useState<SourcePath[]>([])
   const [processing, setProcessing] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -87,7 +89,7 @@ export function NewDocumentFlow() {
   const identityRef = useRef<HTMLInputElement>(null)
   const residenceRef = useRef<HTMLInputElement>(null)
 
-  const missing = useMemo(() => [...requiredPerson(person), ...requiredCompany(company)], [person, company])
+  const missing = useMemo(() => [...requiredPerson(person), ...(includeCompany ? requiredCompany(company) : [])], [person, company, includeCompany])
 
   function validateFile(file: File) {
     if (!allowedTypes.includes(file.type)) return 'Use JPG, PNG, WEBP ou PDF.'
@@ -122,12 +124,22 @@ export function NewDocumentFlow() {
         { file: identityFile, kind: 'identity' as const },
         { file: residenceFile, kind: 'residence' as const },
       ]
+      // Se o usuário voltou e processou novos arquivos, remove o rascunho anterior antes de criar outro.
+      if (sourcePaths.length) {
+        await supabase.storage.from('source-documents').remove(sourcePaths.map(item=>item.path))
+        setSourcePaths([])
+      }
       const stored: SourcePath[] = []
-      for (const item of uploads) {
-        const path = `${auth.user.id}/drafts/${draftId}/${item.kind}_${safeName(item.file.name)}`
-        const { error: uploadError } = await supabase.storage.from('source-documents').upload(path, item.file, { contentType: item.file.type, upsert: false })
-        if (uploadError) throw new Error(`Não foi possível armazenar ${item.file.name} com segurança.`)
-        stored.push({ kind: item.kind, path, mimeType: item.file.type, originalName: item.file.name })
+      try {
+        for (const item of uploads) {
+          const path = `${auth.user.id}/drafts/${draftId}/${item.kind}_${safeName(item.file.name)}`
+          const { error: uploadError } = await supabase.storage.from('source-documents').upload(path, item.file, { contentType: item.file.type, upsert: false })
+          if (uploadError) throw new Error(`Não foi possível armazenar ${item.file.name} com segurança.`)
+          stored.push({ kind: item.kind, path, mimeType: item.file.type, originalName: item.file.name })
+        }
+      } catch (uploadFailure) {
+        if (stored.length) await supabase.storage.from('source-documents').remove(stored.map(item=>item.path))
+        throw uploadFailure
       }
       setSourcePaths(stored)
       setProgress(100)
@@ -139,6 +151,8 @@ export function NewDocumentFlow() {
 
   function updatePerson<K extends keyof PersonData>(key: K, value: PersonData[K]) {
     setPerson((old) => ({ ...old, [key]: value }))
+    // Depois de uma correção manual, o campo deixa de ser marcado como "extraído".
+    setExtracted((old) => { const next=new Set(old); next.delete(key); return next })
   }
   function updateCompany<K extends keyof CompanyData>(key: K, value: CompanyData[K]) {
     setCompany((old) => ({ ...old, [key]: value }))
@@ -151,12 +165,13 @@ export function NewDocumentFlow() {
     try {
       const response = await fetch('/api/documents/generate', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ person, company, sourcePaths }),
+        body: JSON.stringify({ person, company, includeCompany, sourcePaths }),
       })
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Falha na geração.')
       const files = Array.isArray(data.files) ? data.files.filter((f: GeneratedFile) => f?.url && f?.filename) : []
-      if (files.length !== 4) throw new Error('Os documentos foram processados, mas nem todos os quatro arquivos ficaram disponíveis para download.')
+      const expectedFiles = includeCompany ? 4 : 2
+      if (files.length !== expectedFiles) throw new Error(`Os documentos foram processados, mas ${expectedFiles === 4 ? 'nem todos os quatro arquivos' : 'os dois arquivos da procuração'} ficaram disponíveis para download.`)
       setDownloads(files)
       setStep(3)
     } catch (e) {
@@ -165,7 +180,7 @@ export function NewDocumentFlow() {
   }
 
   function reset() {
-    setStep(1); setIdentityFile(null); setResidenceFile(null); setPerson(emptyPerson); setCompany(emptyCompany)
+    setStep(1); setIdentityFile(null); setResidenceFile(null); setPerson(emptyPerson); setCompany(emptyCompany); setIncludeCompany(false)
     setSourcePaths([]); setDownloads([]); setExtracted(new Set()); setError(''); setProgress(0)
     if (identityRef.current) identityRef.current.value = ''
     if (residenceRef.current) residenceRef.current.value = ''
@@ -211,36 +226,46 @@ export function NewDocumentFlow() {
           <Field label="CEP" value={person.cep} onChange={(v)=>updatePerson('cep',v)} extracted={extracted.has('cep')} />
         </div>
 
-        <div className="subsectionTitle"><span>Dados da pessoa jurídica</span><em>Necessários para a declaração original</em></div>
-        <div className="fieldsGrid">
-          <Field label="Razão social / nome empresarial" value={company.empresaNome} onChange={(v)=>updateCompany('empresaNome',v)} wide />
-          <Field label="CNPJ" value={company.cnpj} onChange={(v)=>updateCompany('cnpj',v)} />
-          <Field label="Logradouro da empresa" value={company.empresaLogradouro} onChange={(v)=>updateCompany('empresaLogradouro',v)} wide />
-          <Field label="Número" value={company.empresaNumero} onChange={(v)=>updateCompany('empresaNumero',v)} />
-          <Field label="Bairro" value={company.empresaBairro} onChange={(v)=>updateCompany('empresaBairro',v)} />
-          <Field label="Cidade" value={company.empresaCidade} onChange={(v)=>updateCompany('empresaCidade',v)} />
-          <Field label="UF" value={company.empresaUf} onChange={(v)=>updateCompany('empresaUf',v.toUpperCase().slice(0,2))} />
+        <div className="companyToggleBox">
+          <label className="switchRow">
+            <input type="checkbox" checked={includeCompany} onChange={(e)=>{ setIncludeCompany(e.target.checked); setError('') }} />
+            <span className="switchVisual" aria-hidden="true"><i /></span>
+            <span><strong>Cliente possui pessoa jurídica</strong><small>Marque somente se for gerar também a declaração de hipossuficiência do modelo empresarial.</small></span>
+          </label>
         </div>
 
+        {includeCompany && <>
+          <div className="subsectionTitle"><span><Building2 size={15}/> Dados da pessoa jurídica</span><em>Somente para a declaração empresarial</em></div>
+          <div className="fieldsGrid">
+            <Field label="Razão social / nome empresarial" value={company.empresaNome} onChange={(v)=>updateCompany('empresaNome',v)} wide />
+            <Field label="CNPJ" value={company.cnpj} onChange={(v)=>updateCompany('cnpj',v)} />
+            <Field label="Logradouro da empresa" value={company.empresaLogradouro} onChange={(v)=>updateCompany('empresaLogradouro',v)} wide />
+            <Field label="Número" value={company.empresaNumero} onChange={(v)=>updateCompany('empresaNumero',v)} />
+            <Field label="Bairro" value={company.empresaBairro} onChange={(v)=>updateCompany('empresaBairro',v)} />
+            <Field label="Cidade" value={company.empresaCidade} onChange={(v)=>updateCompany('empresaCidade',v)} />
+            <Field label="UF" value={company.empresaUf} onChange={(v)=>updateCompany('empresaUf',v.toUpperCase().slice(0,2))} />
+          </div>
+        </>}
+
         <div className="outputSummary">
-          <FileText size={18}/><div><strong>Serão gerados 4 arquivos</strong><span>Procuração em Word e PDF + Declaração de hipossuficiência em Word e PDF.</span></div>
+          <FileText size={18}/><div><strong>{includeCompany ? 'Serão gerados 4 arquivos' : 'Serão gerados 2 arquivos'}</strong><span>{includeCompany ? 'Procuração em Word e PDF + Declaração de hipossuficiência empresarial em Word e PDF.' : 'Procuração em Word e PDF. A declaração empresarial só é gerada quando a opção de pessoa jurídica estiver marcada.'}</span></div>
         </div>
         <div className="securityNote"><LockKeyhole size={16}/><span>Os textos jurídicos e os dados fixos da advogada permanecem nos modelos originais. Só os campos variáveis e a data atual são substituídos.</span></div>
         {missing.length > 0 && <div className="missingNotice">Campos pendentes: {missing.join(', ')}.</div>}
         {error && <div className="formError" role="alert">{error}</div>}
         <div className="formActions between">
           <button className="secondaryButton" onClick={()=>setStep(1)}><ChevronLeft size={17}/> Voltar</button>
-          <button className="primaryButton" disabled={generating} onClick={generateAll}>{generating ? <LoaderCircle className="spin" size={17}/> : <FileText size={17}/>} {generating ? 'Gerando 4 arquivos...' : 'Gerar os 2 documentos — Word + PDF'}</button>
+          <button className="primaryButton" disabled={generating} onClick={generateAll}>{generating ? <LoaderCircle className="spin" size={17}/> : <FileText size={17}/>} {generating ? `Gerando ${includeCompany ? '4' : '2'} arquivos...` : includeCompany ? 'Gerar os 2 documentos — Word + PDF' : 'Gerar procuração — Word + PDF'}</button>
         </div>
       </section>}
 
       {step === 3 && <section className="paperSection flowPaper resultPaper">
         <div className="resultIcon"><Check size={26}/></div>
         <h2>Documentos gerados</h2>
-        <p>Procuração e declaração foram criadas nos dois formatos e salvas no armazenamento privado do escritório.</p>
-        <div className="resultFiles">
+        <p>{includeCompany ? 'Procuração e declaração foram criadas nos dois formatos e salvas no armazenamento privado do escritório.' : 'A procuração foi criada em Word e PDF e salva no armazenamento privado do escritório.'}</p>
+        <div className={includeCompany ? "resultFiles" : "resultFiles singleResult"}>
           <ResultGroup title="Procuração" files={procFiles} />
-          <ResultGroup title="Declaração de hipossuficiência" files={declFiles} />
+          {includeCompany && <ResultGroup title="Declaração de hipossuficiência" files={declFiles} />}
         </div>
         <button className="textButton" onClick={reset}>Criar outro documento</button>
       </section>}

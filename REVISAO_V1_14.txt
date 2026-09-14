@@ -1,0 +1,14 @@
+V1.14 — PENTE-FINO
+
+- Pessoa jurídica opcional.
+- Procuração DOCX/PDF sempre disponível após conferência.
+- Declaração empresarial DOCX/PDF somente quando pessoa jurídica estiver marcada.
+- Clientes: editar + excluir.
+- Documentos: filtrar + baixar + excluir.
+- Exclusão limpa também os arquivos privados do Storage.
+- OCR/PDF: reconstrução por posição para evitar mistura de colunas.
+- Nome: regras separadas para CNH/RG e comprovante.
+- MRZ corrigida.
+- CEP só confirma endereço quando cidade/UF são compatíveis.
+- Rollback em falhas parciais de upload/geração.
+- Nenhuma alteração no texto jurídico original dos modelos.

@@ -1,14 +1,22 @@
-DEPLOY V1.11
+DEPLOY V1.14
 
 1. Substitua os arquivos do repositório GitHub pelos desta versão.
 2. Faça commit/push.
 3. A Vercel fará o redeploy automaticamente.
-4. Supabase não precisa ser recriado se já está funcionando.
+4. O Supabase existente continua compatível; não rode migration nova.
 5. Para teste do OCR, nenhuma variável nova é obrigatória.
 6. Opcional para uso mais estável: configure OCRSPACE_API_KEY na Vercel.
 
-Ao gerar, o sistema cria automaticamente:
-- Procuração .docx
-- Procuração .pdf
-- Declaração de Hipossuficiência .docx
-- Declaração de Hipossuficiência .pdf
+Geração:
+- Sem pessoa jurídica marcada: Procuração .docx + .pdf.
+- Com pessoa jurídica marcada: Procuração .docx + .pdf + Declaração de Hipossuficiência empresarial .docx + .pdf.
+
+Clientes:
+- editar dados salvos;
+- ativar/desativar pessoa jurídica;
+- excluir cliente com limpeza dos arquivos privados relacionados.
+
+Documentos:
+- filtrar por tipo;
+- baixar DOCX/PDF;
+- excluir documento com limpeza dos arquivos privados.
