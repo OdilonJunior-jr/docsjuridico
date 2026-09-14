@@ -1,0 +1,8 @@
+V1.13 — correção específica do nome na CNH digital SENATRAN
+
+- A camada de texto do PDF da CNH é ignorada quando contém apenas certificado/Assinador Serpro.
+- Frases do Serpro nunca podem ser aceitas como nome, inclusive na etapa final de merge.
+- O comprovante com nome + CPF pode confirmar o titular quando a CNH não fornece nome confiável.
+- A CNH é dividida em dois recortes para OCR: cartão e MRZ.
+- A MRZ recebe leitura própria para recuperar o nome completo com menos truncamento.
+- Banco, RLS, storage, modelos jurídicos e geração de 4 arquivos permanecem iguais.

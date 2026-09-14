@@ -17,13 +17,28 @@ type SourcePath = { kind: 'identity' | 'residence'; path: string; mimeType: stri
 type GeneratedFile = { kind: DocumentKind; format: 'docx' | 'pdf'; url: string; filename: string }
 const allowedTypes = ['image/jpeg','image/png','image/webp','application/pdf']
 
+const SUSPICIOUS_NAME = /ASSINADOR|SERPRO|CERTIFICAD|VALIDADE|CONFIRMAD|PROGRAMA|ORIENTA[CÇ][AÃ]O|DOCUMENTO\s+ASSINADO|MEDIDA\s+PROVIS[ÓO]RIA|HTTPS?|WWW\.|REP[ÚU]BLICA|MINIST[ÉE]RIO|SECRETARIA|QR[- ]?CODE/i
+
+function trustedName(value?: string) {
+  const v = String(value || '').replace(/\s+/g, ' ').trim()
+  if (!v || v.length < 5 || v.length > 100 || /\d/.test(v) || SUSPICIOUS_NAME.test(v)) return ''
+  const words = v.split(/\s+/).filter(Boolean)
+  return words.length >= 2 && words.length <= 9 ? v : ''
+}
+
 function mergePerson(identity: Partial<PersonData>, residence: Partial<PersonData>): PersonData {
   const identityCpf = String(identity.cpf || '').replace(/\D/g, '')
   const residenceCpf = String(residence.cpf || '').replace(/\D/g, '')
   const sameCpf = Boolean(identityCpf && residenceCpf && identityCpf === residenceCpf)
-  // Quando o comprovante digital traz o mesmo CPF da identificação, o nome do comprovante
-  // serve como confirmação contra ruídos do OCR da CNH (QR/rodapé/certificado).
-  const confirmedName = sameCpf && residence.nome ? residence.nome : (identity.nome || residence.nome || '')
+  const identityName = trustedName(identity.nome)
+  const residenceName = trustedName(residence.nome)
+
+  // Regra final de segurança: texto de certificado/Serpro nunca pode virar nome.
+  // Se o comprovante traz CPF + nome, ele é uma confirmação forte do titular e pode corrigir
+  // uma CNH cujo OCR só tenha lido o rodapé/QR. Quando ambos os CPFs existem, exige coincidência.
+  let confirmedName = identityName || residenceName
+  if (residenceName && residenceCpf && (!identityCpf || sameCpf || !identityName)) confirmedName = residenceName
+
   return {
     nome: confirmedName,
     nacionalidade: identity.nacionalidade || '',

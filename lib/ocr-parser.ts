@@ -281,7 +281,8 @@ function parseAddress(lines: string[], text: string) {
 }
 
 function chooseName(a?: string, b?: string) {
-  const av = clean(a || ''), bv = clean(b || '')
+  const av = looksLikeName(clean(a || '')) ? clean(a || '') : ''
+  const bv = looksLikeName(clean(b || '')) ? clean(b || '') : ''
   if (!av) return bv
   if (!bv) return av
   const an = normalize(av), bn = normalize(bv)

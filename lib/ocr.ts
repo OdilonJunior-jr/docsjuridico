@@ -118,10 +118,13 @@ async function pdfToPrepared(file: File, kind: DocumentSourceKind): Promise<PdfP
   await firstPage.render({ canvas, canvasContext: ctx, viewport }).promise
 
   if (kind === 'identity') {
-    // CNH digital SENATRAN: o cartão fica à esquerda e o QR/rodapé pode confundir o OCR.
-    // A primeira tentativa é um recorte focado no cartão + MRZ; a página inteira fica como fallback.
-    const focused = cropCanvas(canvas, 0.025, 0.045, 0.46, 0.72)
-    return { images: [await canvasToBoundedJpeg(focused), await canvasToBoundedJpeg(canvas)], text: textParts.join('\n') }
+    // CNH digital SENATRAN: lê apenas a coluna esquerda. O QR e o texto do certificado
+    // ficam à direita e não devem participar da identificação do titular.
+    const card = cropCanvas(canvas, 0.025, 0.055, 0.455, 0.46)
+    // A MRZ, na parte inferior esquerda, repete o nome em formato altamente legível.
+    // Uma leitura separada dá muito mais pixels por caractere e reduz nomes truncados.
+    const mrz = cropCanvas(canvas, 0.025, 0.515, 0.455, 0.205)
+    return { images: [await canvasToBoundedJpeg(card), await canvasToBoundedJpeg(mrz)], text: textParts.join('\n') }
   }
 
   return { images: [await canvasToBoundedJpeg(canvas)], text: textParts.join('\n') }
@@ -139,6 +142,18 @@ async function callServerOcr(blob: Blob, filename: string, kind: DocumentSourceK
 
 function hasResidenceCore(data: ExtractionResult) {
   return Boolean(data.logradouro && data.numero && data.cep && data.cidade && data.uf)
+}
+
+function identityTextLayerIsReliable(text: string) {
+  const normalized = text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
+  // O PDF oficial da SENATRAN costuma ter uma camada de texto apenas no rodapé do Serpro,
+  // enquanto os dados pessoais estão rasterizados dentro da imagem da CNH.
+  if (/ASSINADOR\s+SERPRO|DOCUMENTO\s+ASSINADO\s+COM\s+CERTIFICADO|MEDIDA\s+PROVISORIA/.test(normalized) && !/\bCPF\b/.test(normalized)) return false
+  const anchors = [
+    /NOME\s+E\s+SOBRENOME/, /\bCPF\b/, /DOC\.?\s*IDENTIDADE|DOCUMENTO\s+DE\s+IDENTIDADE/,
+    /NACIONALIDADE/, /N[º°O]?\s*REGISTRO|REGISTRO/, /CATEGORIA/
+  ]
+  return anchors.filter(rx => rx.test(normalized)).length >= 2
 }
 
 async function enrichAddressByCep(data: ExtractionResult): Promise<ExtractionResult> {
@@ -173,9 +188,14 @@ export async function extractDataFromFile(
     images = prepared.images
     if (prepared.text.trim()) {
       const parsedText = parseBrazilianDocumentText(prepared.text)
-      direct = kind === 'identity'
-        ? { nome: parsedText.nome || '', nacionalidade: parsedText.nacionalidade || '', cpf: parsedText.cpf || '', rg: parsedText.rg || '', rawText: prepared.text }
-        : parsedText
+      if (kind === 'identity') {
+        // Não transforma o rodapé do certificado digital em dado pessoal.
+        direct = identityTextLayerIsReliable(prepared.text)
+          ? { nome: parsedText.nome || '', nacionalidade: parsedText.nacionalidade || '', cpf: parsedText.cpf || '', rg: parsedText.rg || '', rawText: prepared.text }
+          : { rawText: prepared.text }
+      } else {
+        direct = parsedText
+      }
     }
   } else {
     images = [await imageFileToJpeg(file)]
