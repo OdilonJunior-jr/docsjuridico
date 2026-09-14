@@ -151,3 +151,5 @@ a{color:inherit;text-decoration:none}
 @media(max-width:900px){.clientDataRow{grid-template-columns:auto minmax(0,1fr) auto}.clientDataRow .rowActions{grid-column:2/-1;justify-content:flex-start}.documentToolbar{align-items:stretch;flex-direction:column}.filterTabs{overflow:auto;flex-wrap:nowrap}.filterTabs button{white-space:nowrap}.modalBackdrop{padding:10px}.editModal{max-height:94vh}.modalHeader,.modalBody,.modalFooter{padding-left:15px;padding-right:15px}}
 @media(max-width:620px){.clientDataRow{grid-template-columns:auto minmax(0,1fr)}.clientDataRow .rowMeta{display:none}.clientDataRow .rowActions{grid-column:2}.rowActions{flex-wrap:wrap}.documentDataRow .downloadActions{display:flex;flex-wrap:wrap}.modalFooter{display:grid;grid-template-columns:1fr 1fr}.modalFooter .primaryButton,.modalFooter .secondaryButton{width:100%}.switchRow{align-items:flex-start}.switchVisual{margin-top:1px}}
 .resultFiles.singleResult{grid-template-columns:1fr;max-width:430px}
+
+.buildVersion{font-size:9px;color:#7890ad;margin-top:2px;letter-spacing:.04em}

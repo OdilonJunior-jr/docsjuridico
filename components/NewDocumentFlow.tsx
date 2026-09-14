@@ -26,6 +26,22 @@ function trustedName(value?: string) {
   return words.length >= 2 && words.length <= 9 ? v : ''
 }
 
+function trustedNationality(value?: string) {
+  const v = String(value || '').replace(/\s+/g, ' ').trim()
+  if (!v || /NACIONALIDADE|NATIONALITY|NACIONALIDAD/i.test(v) || /[<>/\\|]/.test(v) || /\d/.test(v)) return ''
+  if (!/^[A-Za-zÀ-ÿ'’(). -]{4,30}$/.test(v)) return ''
+  return v
+}
+
+function trustedRg(value?: string, cpf?: string) {
+  const v = String(value || '').replace(/\s+/g, ' ').trim()
+  if (!v || /[<>]/.test(v) || /BRA[0-9A-Z<]{5,}/i.test(v) || /NACIONALIDADE|NATIONALITY|NACIONALIDAD|NASCIMENTO|VALIDADE|REGISTRO|CATEGORIA|CPF/i.test(v)) return ''
+  const digits = v.replace(/\D/g, '')
+  if (digits.length < 5 || digits.length > 14) return ''
+  if (cpf && digits === String(cpf).replace(/\D/g, '')) return ''
+  return v
+}
+
 function mergePerson(identity: Partial<PersonData>, residence: Partial<PersonData>): PersonData {
   const identityCpf = String(identity.cpf || '').replace(/\D/g, '')
   const residenceCpf = String(residence.cpf || '').replace(/\D/g, '')
@@ -41,12 +57,12 @@ function mergePerson(identity: Partial<PersonData>, residence: Partial<PersonDat
 
   return {
     nome: confirmedName,
-    nacionalidade: identity.nacionalidade || '',
+    nacionalidade: trustedNationality(identity.nacionalidade) || '',
     estadoCivil: identity.estadoCivil || '',
     profissao: identity.profissao || '',
     // Quando o comprovante traz CPF validado, ele confirma o titular e evita manter um CPF mal lido na CNH.
     cpf: residence.cpf || identity.cpf || '',
-    rg: identity.rg || '',
+    rg: trustedRg(identity.rg, residence.cpf || identity.cpf) || '',
     logradouro: residence.logradouro || identity.logradouro || '',
     numero: residence.numero || identity.numero || '',
     bairro: residence.bairro || identity.bairro || '',

@@ -1,4 +1,4 @@
-# Documentos Jurídicos — V1.14
+# Documentos Jurídicos — V1.15
 
 Sistema web para conferência de dados de cliente e geração de documentos jurídicos com Supabase, Next.js e armazenamento privado.
 
@@ -12,7 +12,7 @@ Sistema web para conferência de dados de cliente e geração de documentos jur�
 
 O texto jurídico e os dados fixos da advogada permanecem nos modelos originais. Dados ausentes não são inventados.
 
-## Revisão V1.14
+## Revisão V1.15
 
 - Pessoa jurídica passou a ser opcional e os campos empresariais só aparecem quando a opção é marcada.
 - A declaração original é empresarial; por isso ela só é gerada quando os dados de pessoa jurídica estiverem habilitados e completos.
@@ -22,8 +22,11 @@ O texto jurídico e os dados fixos da advogada permanecem nos modelos originais.
 - Campos corrigidos manualmente deixam de aparecer como “extraídos”.
 - A leitura de PDFs digitais passou a reconstruir linhas por posição para reduzir mistura de colunas em faturas/comprovantes.
 - Parser de nome separado por contexto: identidade e comprovante usam regras diferentes.
-- MRZ da CNH foi corrigida para não cortar as primeiras letras do nome.
+- MRZ da CNH continua disponível para nome, mas é bloqueada explicitamente como fonte de RG.
 - Nome de empresa, bairro e textos de certificado/Serpro são rejeitados como nome de pessoa.
+- RG só é aceito quando passa por validação de formato; linhas de MRZ (`I<BRA...`) nunca entram como RG.
+- Nacionalidade nunca aceita os rótulos `nationality / nacionalidad / nacionalidade`; só entra valor textual real, como `BRASILEIRO(A)`.
+- Há uma segunda barreira no formulário para impedir que ruído de OCR seja marcado como dado extraído.
 - Comprovante com CPF válido tem prioridade para confirmar o titular.
 - ViaCEP só corrige o endereço quando cidade/UF são compatíveis, evitando sobrescrever um endereço por causa de CEP mal lido.
 - Geração ganhou rollback de arquivos em caso de falha parcial.
@@ -31,7 +34,7 @@ O texto jurídico e os dados fixos da advogada permanecem nos modelos originais.
 
 ## Banco existente
 
-A V1.14 não exige nova migration. As tabelas e buckets já criados pela `001_initial.sql` continuam compatíveis.
+A V1.15 não exige nova migration. As tabelas e buckets já criados pela `001_initial.sql` continuam compatíveis.
 
 ## OCR de teste
 

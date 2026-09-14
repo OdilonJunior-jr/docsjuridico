@@ -1,0 +1,9 @@
+V1.15 — correção de regressão de leitura
+
+- MRZ da CNH nunca pode ser usada como RG.
+- RG brasileiro prioriza Doc. Identidade / órgão emissor / UF e padrões com SSP/PC/DETRAN.
+- Rótulos nationality / nacionalidad / nacionalidade nunca podem virar valor.
+- Nacionalidade só é preenchida quando há valor textual real (ex.: BRASILEIRO(A)); caso contrário fica vazia.
+- Pessoa jurídica continua opcional por chave na tela de conferência.
+- Edição/exclusão de clientes e documentos da V1.14 mantidas.
+- Identificador visual v1.15 no rodapé lateral para confirmar o deploy correto.

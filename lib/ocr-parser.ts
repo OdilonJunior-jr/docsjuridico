@@ -135,12 +135,41 @@ function mrzName(lines: string[]) {
   return ''
 }
 
+const NATIONALITY_LABEL_WORDS = /NACIONALIDADE|NATIONALITY|NACIONALIDAD/i
+const IDENTITY_ISSUER = /SSP|SESP|SDS|SSPDS|POL[IÍ]CIA\s*CIVIL|\bPC(?:\s*[-/]?\s*[A-Z]{2})?\b|DETRAN|IFP|DGPC/i
+
+function looksLikeMrz(value: string) {
+  const compact = String(value || '').toUpperCase().replace(/\s+/g, '')
+  return /<{2,}/.test(compact) || /^[IPACV]?<[A-Z]{3}/.test(compact) || /BRA[0-9A-Z<]{6,}/.test(compact)
+}
+
+function sanitizeNationality(value: string) {
+  const v = clean(value)
+  if (!v || v.length > 35 || /[<>]/.test(v) || /\d/.test(v) || NATIONALITY_LABEL_WORDS.test(v)) return ''
+  const normalized = normalize(v)
+  const brazilian = normalized.match(/BRASILEIR[OA](?:\(A\))?/)
+  if (brazilian) return brazilian[0].toLowerCase()
+  // Só aceita um valor textual limpo. Rótulos multilíngues separados por barra ficam de fora.
+  if (/[/\\|]/.test(v) || !/^[A-Za-zÀ-ÿ'’(). -]{4,30}$/.test(v)) return ''
+  return v.toLowerCase()
+}
+
 function findNationality(lines: string[]) {
+  // A CNH brasileira costuma imprimir BRASILEIRO(A). Procura primeiro pelo valor real,
+  // nunca pelo rótulo multilíngue "nationality / nacionalidad".
+  for (const line of lines) {
+    const direct = sanitizeNationality(line)
+    if (/BRASILEIR/i.test(direct)) return direct
+  }
   for (let i = 0; i < lines.length; i++) {
-    if (!/NACIONALIDADE|NATIONALITY/i.test(normalize(lines[i]))) continue
-    const same = clean(lines[i].replace(/^.*?(?:NACIONALIDADE|NATIONALITY)\s*[:\-]?\s*/i, ''))
-    const value = same && !LABEL_ONLY.test(same) ? same : nextUseful(lines, i, v => /^[A-ZÀ-Ÿ() .-]{4,35}$/i.test(v) && !LABEL_ONLY.test(v), 2)
-    if (value) return clean(value).toLowerCase()
+    if (!NATIONALITY_LABEL_WORDS.test(normalize(lines[i]))) continue
+    const same = clean(lines[i].replace(/^.*?(?:NACIONALIDADE|NATIONALITY|NACIONALIDAD)\s*[:\-]?\s*/i, ''))
+    const sameValue = sanitizeNationality(same)
+    if (sameValue) return sameValue
+    for (let distance = 1; distance <= 3; distance++) {
+      const candidate = sanitizeNationality(lines[i + distance] || '')
+      if (candidate) return candidate
+    }
   }
   return ''
 }
@@ -242,18 +271,58 @@ function findIdentityName(lines: string[]) {
   return findGenericName(lines)
 }
 
+function sanitizeIdentityCandidate(value: string, cpf = '') {
+  const v = clean(value)
+  if (!v || v.length > 48 || looksLikeMrz(v) || /[<>]/.test(v)) return ''
+  if (/CPF|NASCIMENTO|VALIDADE|EMISS[AÃ]O|REGISTRO|CATEGORIA|HABILITA[CÇ][AÃ]O|NACIONALIDADE|NATIONALITY|NACIONALIDAD/i.test(v)) return ''
+  if (/^\d{2}[./-]\d{2}[./-]\d{2,4}$/.test(v)) return ''
+  const digits = onlyDigits(v)
+  if (digits.length < 5 || digits.length > 14) return ''
+  const cpfDigits = onlyDigits(cpf)
+  if (cpfDigits && digits === cpfDigits) return ''
+  if (digits.length === 11 && validCpfDigits(digits) && !IDENTITY_ISSUER.test(v)) return ''
+  return v
+}
+
+function identityCandidateScore(value: string, labeled = false) {
+  const v = sanitizeIdentityCandidate(value)
+  if (!v) return -1000
+  const digits = onlyDigits(v)
+  let score = labeled ? 70 : 0
+  if (IDENTITY_ISSUER.test(v)) score += 90
+  if (/^(?:MG|SP|RJ|ES|PR|SC|RS|BA|PE|CE|GO|DF|PA|AM|MA|PB|RN|AL|SE|PI|MT|MS|RO|RR|AP|AC|TO)\s*[-.]?\s*\d/i.test(v)) score += 55
+  if (digits.length >= 7 && digits.length <= 10) score += 35
+  if (/\b[A-Z]{2}\s*$/.test(v)) score += 12
+  return score
+}
+
 function findIdentity(lines: string[], text: string) {
-  const labels = [/DOC\.?\s*IDENTIDADE(?:\s*\/.*)?/i, /DOCUMENTO\s+DE\s+IDENTIDADE/i, /IDENTIDADE/i, /\bRG\b/i]
-  for (let i = 0; i < lines.length; i++) {
-    const same = valueAfterLabel(lines[i], labels)
-    if (same && /\d/.test(same) && same.length <= 70) return clean(same)
-    if (labels.some(label => label.test(normalize(lines[i])))) {
-      const next = nextUseful(lines, i, v => /\d/.test(v) && v.length >= 4 && v.length <= 70, 4)
-      if (next) return clean(next)
-    }
+  // Não usa MRZ como RG. A MRZ serve para nome/documento internacional, mas não é o campo
+  // "Doc. Identidade / Órg. Emissor / UF" da CNH brasileira.
+  const label = /DOC\.?\s*IDENTIDADE(?:\s*\/\s*[ÓO]RG\.?\s*EMISSOR)?(?:\s*\/\s*UF)?|DOCUMENTO\s+DE\s+IDENTIDADE|\bRG\b/i
+  const candidates: Array<{ value: string; score: number }> = []
+  const add = (value: string, labeled = false) => {
+    const cleanValue = sanitizeIdentityCandidate(value)
+    if (!cleanValue) return
+    candidates.push({ value: cleanValue, score: identityCandidateScore(cleanValue, labeled) })
   }
-  const match = text.match(/(?:\bRG\b|IDENTIDADE)\s*[:\-]?\s*([A-Z]{0,6}\s*\d[\d.\-\/\s]{3,25}(?:\s+[A-Z]{2,12})?)/i)
-  return match ? clean(match[1]) : ''
+
+  for (let i = 0; i < lines.length; i++) {
+    if (!label.test(normalize(lines[i]))) continue
+    const same = clean(lines[i].replace(/^.*?(?:DOC\.?\s*IDENTIDADE(?:\s*\/\s*[ÓO]RG\.?\s*EMISSOR)?(?:\s*\/\s*UF)?|DOCUMENTO\s+DE\s+IDENTIDADE|RG)\s*[:\-]?\s*/i, ''))
+    add(same, true)
+    for (let distance = 1; distance <= 4; distance++) add(lines[i + distance] || '', true)
+  }
+
+  // Fallback de alta confiança: padrão de RG brasileiro com UF/órgão emissor.
+  const globalPatterns = [
+    /\b(?:MG|SP|RJ|ES|PR|SC|RS|BA|PE|CE|GO|DF|PA|AM|MA|PB|RN|AL|SE|PI|MT|MS|RO|RR|AP|AC|TO)\s*[.-]?\s*\d[\d. -]{5,15}\s*(?:SSP|SESP|SDS|SSPDS|PC|DETRAN|IFP|DGPC)?\s*(?:[/ -]?\s*[A-Z]{2})?\b/gi,
+    /\b\d[\d. -]{5,15}\s+(?:SSP|SESP|SDS|SSPDS|PC|DETRAN|IFP|DGPC)\s*(?:[/ -]?\s*[A-Z]{2})?\b/gi,
+  ]
+  for (const pattern of globalPatterns) for (const match of text.match(pattern) || []) add(match, false)
+
+  const best = candidates.sort((a, b) => b.score - a.score)[0]
+  return best && best.score > 0 ? best.value : ''
 }
 
 function cityUfFromLine(line: string) {
@@ -369,11 +438,19 @@ function chooseName(a?: string, b?: string) {
 }
 
 function chooseRg(a?: string, b?: string) {
-  const av = clean(a || ''), bv = clean(b || '')
+  const av = sanitizeIdentityCandidate(a || ''), bv = sanitizeIdentityCandidate(b || '')
   if (!av) return bv
   if (!bv) return av
-  const score = (v: string) => onlyDigits(v).length * 4 + v.length - (BAD_NAME.test(v) ? 100 : 0)
-  return score(bv) > score(av) ? bv : av
+  return identityCandidateScore(bv) > identityCandidateScore(av) ? bv : av
+}
+
+function chooseNationality(a?: string, b?: string) {
+  const av = sanitizeNationality(a || ''), bv = sanitizeNationality(b || '')
+  if (!av) return bv
+  if (!bv) return av
+  if (/BRASILEIR/i.test(av)) return av
+  if (/BRASILEIR/i.test(bv)) return bv
+  return av
 }
 
 function chooseText(a?: string, b?: string) {
@@ -393,7 +470,7 @@ function chooseText(a?: string, b?: string) {
 export function mergeExtractionCandidates(primary: ExtractionResult, secondary: ExtractionResult): ExtractionResult {
   return {
     nome: chooseName(primary.nome, secondary.nome),
-    nacionalidade: chooseText(primary.nacionalidade, secondary.nacionalidade),
+    nacionalidade: chooseNationality(primary.nacionalidade, secondary.nacionalidade),
     cpf: primary.cpf || secondary.cpf || '',
     rg: chooseRg(primary.rg, secondary.rg),
     logradouro: chooseText(primary.logradouro, secondary.logradouro),

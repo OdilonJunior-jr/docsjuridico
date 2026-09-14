@@ -35,6 +35,7 @@ export function AppShell({ children, email }: { children: React.ReactNode; email
         </nav>
         <div className="sideFooter">
           {email && <div className="userEmail" title={email}>{email}</div>}
+          <div className="buildVersion">v1.15</div>
           <button className="logoutButton" onClick={logout}><LogOut size={17} /> Sair</button>
         </div>
       </aside>
