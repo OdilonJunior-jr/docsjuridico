@@ -12,7 +12,7 @@ type OcrApiResponse = {
 }
 
 const MAX_IMAGE_SIDE = 2600
-const MAX_UPLOAD_BYTES = 3_200_000
+const MAX_UPLOAD_BYTES = 850_000
 const JPEG_QUALITY = 0.9
 
 function mergeExtraction(base: ExtractionResult, next: ExtractionResult): ExtractionResult {
@@ -59,7 +59,7 @@ async function canvasToBoundedJpeg(source: HTMLCanvasElement): Promise<Blob> {
     canvas = reduced
   }
   const finalBlob = await canvasToJpeg(canvas, 0.68)
-  if (finalBlob.size > MAX_UPLOAD_BYTES) throw new Error('A foto é grande demais para leitura. Tente uma imagem com resolução menor.')
+  if (finalBlob.size > MAX_UPLOAD_BYTES) throw new Error('A foto é grande demais para o leitor de teste. Tente uma imagem com resolução menor.')
   return finalBlob
 }
 
@@ -139,7 +139,7 @@ export async function extractDataFromFile(
   }
 
   if (!anyText) {
-    throw new Error('O Google Vision não conseguiu reconhecer texto nessa imagem. Tente uma foto mais nítida, sem reflexo e com o documento inteiro visível.')
+    throw new Error('O OCR não conseguiu reconhecer texto nessa imagem. Tente uma foto mais nítida, sem reflexo e com o documento inteiro visível.')
   }
   return merged
 }

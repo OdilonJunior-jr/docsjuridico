@@ -1,0 +1,13 @@
+VERSÃO V1.10 — OCR AUTOMÁTICO SEM GOOGLE BILLING
+
+Esta versão mantém o fluxo automático:
+CNH/RG + comprovante -> OCR no servidor -> parser -> preenchimento dos campos -> conferência -> documento.
+
+Para o teste imediato, usa a chave pública de demonstração "helloworld" do OCR.Space.
+Não precisa configurar Google Cloud, cartão ou billing.
+
+IMPORTANTE:
+- A chave "helloworld" é severamente limitada e serve somente para teste rápido.
+- Para uso contínuo, crie uma chave gratuita em https://ocr.space/ocrapi/freekey e coloque na Vercel como OCRSPACE_API_KEY.
+- O plano gratuito informado pelo provedor atualmente aceita 25.000 requisições/mês e 500/dia por IP, com arquivo de até 1 MB.
+- Os documentos são enviados ao OCR.Space para extração de texto. Segundo o FAQ do provedor, eles informam que não armazenam os documentos/imagens após o processamento.
